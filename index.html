@@ -1038,7 +1038,8 @@ if("serviceWorker" in navigator && location.protocol.startsWith("http")){
         var srcEl = document.getElementById("app-source");
         var source = srcEl.textContent;
         var compiled = Babel.transform(source, {
-          presets: ["react"],
+          presets: [["react", { runtime: "classic" }]],
+          sourceType: "script",
           filename: "stratos.jsx"
         }).code;
         var script = document.createElement("script");
