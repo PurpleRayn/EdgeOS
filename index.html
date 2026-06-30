@@ -50,7 +50,7 @@
     }
   }, 6000);
 </script>
-<script type="text/babel" data-presets="react">
+<script type="text/plain" id="app-source">
 const { useState, useEffect, useCallback, useRef } = React;
 
 /* ════ TOKENS ════ */
@@ -1025,6 +1025,66 @@ if("serviceWorker" in navigator && location.protocol.startsWith("http")){
     }catch(_){}
   });
 }
+</script>
+
+<script>
+  // Manual transform-and-execute: bypasses Babel's automatic type="text/babel"
+  // page-scanner entirely (the source of the "appendChild / import statement"
+  // crash seen with the auto-scan approach). We read our own source, hand it
+  // to Babel.transform() directly, and execute the compiled output ourselves.
+  (function () {
+    function boot() {
+      try {
+        var srcEl = document.getElementById("app-source");
+        var source = srcEl.textContent;
+        var compiled = Babel.transform(source, {
+          presets: ["react"],
+          filename: "stratos.jsx"
+        }).code;
+        var script = document.createElement("script");
+        script.text = compiled;
+        document.body.appendChild(script);
+      } catch (err) {
+        var root = document.getElementById("root");
+        if (root) {
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;' +
+            'background:#08090C;color:#E6EBF2;font-family:-apple-system,sans-serif;padding:32px;text-align:center;">' +
+            '<div><div style="font-size:13px;letter-spacing:0.15em;color:#F5A623;margin-bottom:14px;">' +
+            '\u25C8 STRAT OS COMPILE ERROR</div>' +
+            '<div style="font-size:12px;color:#8B98AC;line-height:1.6;max-width:420px;white-space:pre-wrap;text-align:left;">' +
+            (err && err.message ? err.message : String(err)) +
+            '</div></div></div>';
+        }
+        console.error("STRAT OS compile error:", err);
+      }
+    }
+    // Wait until React, ReactDOM, and Babel have all loaded from their CDN scripts
+    function waitForLibs(attempt) {
+      attempt = attempt || 0;
+      if (window.React && window.ReactDOM && window.Babel) {
+        boot();
+      } else if (attempt < 100) {
+        setTimeout(function () { waitForLibs(attempt + 1); }, 50);
+      } else {
+        var root = document.getElementById("root");
+        if (root) {
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;' +
+            'background:#08090C;color:#E6EBF2;font-family:-apple-system,sans-serif;padding:32px;text-align:center;">' +
+            '<div><div style="font-size:13px;letter-spacing:0.15em;color:#F5A623;margin-bottom:14px;">' +
+            '\u25C8 STRAT OS COULD NOT LOAD</div>' +
+            '<div style="font-size:13px;color:#8B98AC;line-height:1.6;max-width:340px;">' +
+            'React, ReactDOM, or Babel never finished loading from the CDN. Check your internet ' +
+            'connection and reload.</div>' +
+            '<div style="margin-top:18px;"><button onclick="location.reload()" style="background:#F5A623;' +
+            'color:#0A0A0A;border:none;border-radius:8px;padding:10px 20px;font-weight:700;' +
+            'font-family:monospace;font-size:12px;cursor:pointer;">RELOAD</button></div></div></div>';
+        }
+      }
+    }
+    waitForLibs();
+  })();
 </script>
 </body>
 </html>
