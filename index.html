@@ -1098,6 +1098,147 @@ function GexView({gex,onSave}){
     {g.updated&&(<div style={{textAlign:"center",marginTop:10,fontFamily:mono,fontSize:"9px",color:C.dim}}>Last updated {new Date(g.updated).toLocaleString("en-US",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>)}
   </div>);}
 
+/* ════ ECONOMIC CALENDAR VIEW ════ */
+function CalendarEventRow({event,onDelete,isToday}){
+  const imp=IMPACT_LEVELS.find(i=>i.v===event.impact)||IMPACT_LEVELS[2];
+  return(<div style={{background:C.panel,border:`1px solid ${C.border}`,borderLeft:`3px solid ${imp.color}`,
+    borderRadius:"9px",padding:"11px 13px",...(isToday?{boxShadow:`0 0 0 1px ${C.amber}55`}:{})}}>
+    <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+      <span style={{fontSize:"11px"}}>{imp.icon}</span>
+      <span style={{fontFamily:mono,fontSize:"9px",fontWeight:700,color:imp.color,letterSpacing:"0.06em"}}>{imp.l.toUpperCase()}</span>
+      <span style={{fontFamily:mono,fontSize:"10px",color:C.blue,background:`${C.blue}18`,border:`1px solid ${C.blue}33`,borderRadius:"4px",padding:"1px 6px"}}>{event.currency}</span>
+      <span style={{fontFamily:mono,fontSize:"10px",color:C.dim,marginLeft:"auto"}}>{event.time||"All Day"}</span>
+      <button onClick={()=>onDelete(event.id)} style={{background:"transparent",border:"none",color:C.dim,cursor:"pointer",fontSize:"11px",padding:0}}>✕</button>
+    </div>
+    <div style={{fontFamily:sans,fontSize:"13px",color:C.text,fontWeight:600,marginTop:6}}>{event.title}</div>
+    {(event.forecast||event.previous||event.actual)&&(
+      <div style={{display:"flex",gap:14,marginTop:7,fontFamily:mono,fontSize:"10px",color:C.muted}}>
+        {event.previous&&<span>PREV <b style={{color:C.slate}}>{event.previous}</b></span>}
+        {event.forecast&&<span>FCST <b style={{color:C.slate}}>{event.forecast}</b></span>}
+        {event.actual&&<span>ACT <b style={{color:C.amber}}>{event.actual}</b></span>}
+      </div>)}
+    {event.notes&&<div style={{fontFamily:sans,fontSize:"11px",color:C.muted,marginTop:6,lineHeight:1.4}}>{event.notes}</div>}
+  </div>);}
+
+function EventForm({onSave,onCancel}){
+  const [ev,setEv]=useState(blankEvent());
+  const set=(f,v)=>setEv(p=>({...p,[f]:v}));
+  return(<div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"14px",marginBottom:14}}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}}>
+      <Field label="Date"><input type="date" value={ev.date} onChange={e=>set("date",e.target.value)} style={inp(C.slate)}/></Field>
+      <Field label="Time (or blank = all day)"><input value={ev.time} onChange={e=>set("time",e.target.value)} placeholder="08:30" style={inp(C.slate)}/></Field>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9,marginBottom:9}}>
+      <Field label="Currency"><select value={ev.currency} onChange={e=>set("currency",e.target.value)} style={sel(C.blue)}>
+        {CURRENCIES.map(c=><option key={c} value={c}>{c}</option>)}</select></Field>
+      <Field label="Impact"><select value={ev.impact} onChange={e=>set("impact",e.target.value)} style={sel(IMPACT_LEVELS.find(i=>i.v===ev.impact)?.color)}>
+        {IMPACT_LEVELS.map(i=><option key={i.v} value={i.v}>{i.icon} {i.l}</option>)}</select></Field>
+    </div>
+    <Field label="Event Title" full><input value={ev.title} onChange={e=>set("title",e.target.value)} placeholder="e.g. Nonfarm Payrolls (NFP)" style={{...inp(),marginBottom:9}}/></Field>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9,marginBottom:9}}>
+      <Field label="Previous"><input value={ev.previous} onChange={e=>set("previous",e.target.value)} placeholder="—" style={inp()}/></Field>
+      <Field label="Forecast"><input value={ev.forecast} onChange={e=>set("forecast",e.target.value)} placeholder="—" style={inp()}/></Field>
+      <Field label="Actual"><input value={ev.actual} onChange={e=>set("actual",e.target.value)} placeholder="—" style={inp(C.amber)}/></Field>
+    </div>
+    <textarea value={ev.notes} onChange={e=>set("notes",e.target.value)} rows={2} placeholder="Notes — why this matters for your instruments…"
+      style={{...inp(),fontFamily:sans,fontSize:"12px",lineHeight:1.5,resize:"vertical",marginBottom:12,width:"100%"}}/>
+    <div style={{display:"flex",gap:8}}>
+      <button onClick={onCancel} style={{flex:"0 0 auto",padding:"9px 16px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:"7px",color:C.muted,fontFamily:mono,fontSize:"11px",cursor:"pointer"}}>CANCEL</button>
+      <button onClick={()=>{if(ev.date&&ev.title)onSave(ev);}} style={{flex:1,padding:"9px",background:`${C.amber}1E`,border:`1px solid ${C.amber}`,borderRadius:"7px",color:C.amber,fontFamily:mono,fontWeight:700,fontSize:"11px",cursor:"pointer"}}>+ ADD EVENT</button>
+    </div>
+  </div>);}
+
+function CalendarView({events,onChange}){
+  const [weekOffset,setWeekOffset]=useState(0);
+  const [showForm,setShowForm]=useState(false);
+  const [filter,setFilter]=useState("ALL"); // ALL | HIGH | USD
+  const week=weekRangeLabel(weekOffset);
+  const today=new Date();
+
+  const addEvent=(ev)=>{onChange([...events,ev]);setShowForm(false);};
+  const addPreset=(p)=>{
+    // Quick-add: fills in the preset and adds it dated today; edit the date after if needed.
+    const ne={...blankEvent(),title:p.title,impact:p.impact,currency:p.currency,date:today.toISOString().slice(0,10)};
+    onChange([...events,ne]);
+  };
+  const deleteEvent=(id)=>onChange(events.filter(e=>e.id!==id));
+  const clearWeek=()=>{
+    if(events.length===0)return;
+    onChange(events.filter(e=>{
+      if(!e.date)return true;
+      const d=new Date(e.date+"T00:00:00");
+      return !(d>=week.start&&d<=week.end);
+    }));
+  };
+
+  const filtered=events.filter(e=>{
+    if(filter==="HIGH"&&e.impact!=="high")return false;
+    if(filter==="USD"&&e.currency!=="USD")return false;
+    return true;
+  }).filter(e=>{
+    if(!e.date)return true;
+    const d=new Date(e.date+"T00:00:00");
+    return d>=week.start&&d<=week.end;
+  }).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+
+  // group by date
+  const groups={};
+  filtered.forEach(e=>{const k=e.date||"undated";(groups[k]=groups[k]||[]).push(e);});
+  const dateKeys=Object.keys(groups).sort();
+
+  return(<div style={{animation:"fadeUp 0.3s ease both"}}>
+    <SectionHead n="◈" title="Economic Calendar" sub="ForexFactory-style impact folders. Update manually each week — takes a minute."
+      right={<div style={{display:"flex",gap:6,alignItems:"center"}}>
+        <button onClick={()=>setWeekOffset(o=>o-1)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:"6px",padding:"4px 9px",fontFamily:mono,fontSize:"11px",cursor:"pointer"}}>‹</button>
+        <span style={{fontFamily:mono,fontSize:"10px",color:C.amber,minWidth:90,textAlign:"center"}}>{weekOffset===0?"THIS WEEK":week.label}</span>
+        <button onClick={()=>setWeekOffset(o=>o+1)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:"6px",padding:"4px 9px",fontFamily:mono,fontSize:"11px",cursor:"pointer"}}>›</button>
+      </div>}/>
+
+    <div style={{fontFamily:mono,fontSize:"10px",color:C.dim,marginBottom:14}}>{week.label}</div>
+
+    <div style={{display:"flex",gap:7,marginBottom:14,flexWrap:"wrap"}}>
+      <Pill color={C.amber} active={filter==="ALL"} onClick={()=>setFilter("ALL")} sm>ALL</Pill>
+      <Pill color={C.red} active={filter==="HIGH"} onClick={()=>setFilter("HIGH")} sm>🔴 HIGH ONLY</Pill>
+      <Pill color={C.blue} active={filter==="USD"} onClick={()=>setFilter("USD")} sm>USD ONLY</Pill>
+    </div>
+
+    {!showForm&&(<button onClick={()=>setShowForm(true)} style={{width:"100%",padding:"12px",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:"9px",
+      color:C.amber,fontFamily:mono,fontSize:"11px",letterSpacing:"0.08em",cursor:"pointer",marginBottom:14}}>+ ADD EVENT</button>)}
+    {showForm&&<EventForm onSave={addEvent} onCancel={()=>setShowForm(false)}/>}
+
+    <div style={{marginBottom:14}}>
+      <div style={{fontFamily:mono,fontSize:"9px",color:C.dim,letterSpacing:"0.1em",marginBottom:8}}>QUICK ADD — COMMON USD EVENTS (adds to today, edit date after)</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {COMMON_EVENTS.map(p=>{const imp=IMPACT_LEVELS.find(i=>i.v===p.impact);return(
+          <button key={p.title} onClick={()=>addPreset(p)} style={{background:"transparent",border:`1px solid ${imp.color}44`,color:imp.color,
+            borderRadius:"999px",padding:"5px 10px",fontFamily:mono,fontSize:"9px",cursor:"pointer",whiteSpace:"nowrap"}}>{imp.icon} {p.title}</button>);})}
+      </div>
+    </div>
+
+    {dateKeys.length===0?(
+      <div style={{textAlign:"center",padding:"40px 20px"}}>
+        <div style={{fontFamily:mono,fontSize:"12px",color:C.muted,marginBottom:6}}>No events this week</div>
+        <div style={{fontFamily:sans,fontSize:"12px",color:C.dim}}>Add this week's high-impact USD releases and Fed speakers above.</div></div>
+    ):(
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        {dateKeys.map(k=>{
+          const d=k==="undated"?null:new Date(k+"T00:00:00");
+          const isToday=d&&isSameDate(d,today);
+          return(<div key={k}>
+            <div style={{fontFamily:mono,fontSize:"10px",color:isToday?C.amber:C.dim,letterSpacing:"0.08em",marginBottom:8,fontWeight:700}}>
+              {d?d.toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"}):"UNDATED"}{isToday?" · TODAY":""}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {groups[k].map(ev=><CalendarEventRow key={ev.id} event={ev} onDelete={deleteEvent} isToday={isToday}/>)}
+            </div>
+          </div>);
+        })}
+      </div>
+    )}
+
+    {events.length>0&&(<button onClick={clearWeek} style={{width:"100%",marginTop:20,padding:"10px",background:"transparent",border:`1px solid ${C.border}`,
+      borderRadius:"8px",color:C.dim,fontFamily:mono,fontSize:"10px",letterSpacing:"0.08em",cursor:"pointer"}}>CLEAR THIS WEEK'S EVENTS</button>)}
+  </div>);}
+
 function DisciplinePanel({breakers,onGoToSettings}){
   const list=breakers&&breakers.length?breakers:DEFAULT_CIRCUIT_BREAKERS;
   return(<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:"12px",padding:"16px",marginBottom:16}}>
@@ -1174,12 +1315,14 @@ function StratOS(){
   const [filter,setFilter]=useState("ALL");
   const [settings,setSettings]=useState(loadSettings());
   const [gex,setGex]=useState(loadGex());
+  const [calendar,setCalendar]=useState([]);
   const [clock,setClock]=useState(new Date());
   const [toast,setToast]=useState("");
 
   useEffect(()=>{const t=setInterval(()=>setClock(new Date()),1000);return()=>clearInterval(t);},[]);
-  useEffect(()=>{setEntries(loadEntries());setWatch(loadWatch());setGex(loadGex());},[]);
+  useEffect(()=>{setEntries(loadEntries());setWatch(loadWatch());setGex(loadGex());setCalendar(loadCalendar());},[]);
   const flash=m=>{setToast(m);setTimeout(()=>setToast(""),2200);};
+  const handleCalendar=arr=>{setCalendar(arr);saveCalendar(arr);};
 
   const startNew=()=>{setEditing(blankEntry());setIsEdit(false);setView("form");setTab("home");};
   const openEntry=e=>{setEditing(e);setIsEdit(true);setView("form");setTab("home");};
@@ -1193,7 +1336,7 @@ function StratOS(){
     setEntries(arr);saveEntries(arr);setTab("home");setView("list");
     flash(`Imported ${newEntries.length} trade${newEntries.length!==1?"s":""}`);
   };
-  const handleExport=()=>{const data={entries,watch,settings,exported:Date.now()};
+  const handleExport=()=>{const data={entries,watch,settings,calendar,exported:Date.now()};
     const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);const a=document.createElement("a");
     a.href=url;a.download=`stratos-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);flash("Journal exported");};
@@ -1201,12 +1344,13 @@ function StratOS(){
     if(d.entries){setEntries(d.entries);saveEntries(d.entries);}
     if(d.watch){setWatch(d.watch);saveWatch(d.watch);}
     if(d.settings){setSettings(d.settings);saveSettings(d.settings);}
+    if(d.calendar){setCalendar(d.calendar);saveCalendar(d.calendar);}
     flash("Journal imported");}catch(_){flash("Import failed — invalid file");}};
 
   const filtered=filter==="ALL"?entries:entries.filter(e=>e.instrument===filter);
   const firedCount=watch.filter(w=>w.fired).length;
 
-  const TABS=[{id:"home",label:"Journal",icon:"◧"},{id:"watch",label:"Watch",icon:"◉"},{id:"gex",label:"GEX",icon:"◢"},{id:"review",label:"Review",icon:"◈"},{id:"settings",label:"More",icon:"⚙"}];
+  const TABS=[{id:"home",label:"Journal",icon:"◧"},{id:"watch",label:"Watch",icon:"◉"},{id:"gex",label:"GEX",icon:"◢"},{id:"cal",label:"Cal",icon:"▤"},{id:"review",label:"Review",icon:"◈"},{id:"settings",label:"More",icon:"⚙"}];
 
   return(<div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:sans,maxWidth:760,margin:"0 auto",
     padding:"max(16px, env(safe-area-inset-top)) 14px calc(80px + env(safe-area-inset-bottom))"}}>
@@ -1215,7 +1359,7 @@ function StratOS(){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
       <div><div style={{fontFamily:mono,fontSize:"9px",color:C.amber,letterSpacing:"0.22em",marginBottom:5}}>◈ STRAT OS</div>
         <h1 style={{fontFamily:sans,fontWeight:700,fontSize:"21px",color:"#F3F6FA",letterSpacing:"-0.02em",lineHeight:1}}>
-          {view==="form"?(isEdit?"Edit Brief":"New Brief"):view==="import"?"Import Trades":tab==="watch"?"Watchlist":tab==="gex"?"Today's GEX":tab==="review"?"Weekly Review":tab==="settings"?"Settings":"Trading Platform"}</h1></div>
+          {view==="form"?(isEdit?"Edit Brief":"New Brief"):view==="import"?"Import Trades":tab==="watch"?"Watchlist":tab==="gex"?"Today's GEX":tab==="cal"?"Economic Calendar":tab==="review"?"Weekly Review":tab==="settings"?"Settings":"Trading Platform"}</h1></div>
       <div style={{textAlign:"right"}}>
         <div style={{fontFamily:mono,fontSize:"15px",color:C.muted}}>{clock.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
         <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-end",marginTop:3}}>
@@ -1254,6 +1398,9 @@ function StratOS(){
 
     {/* GEX */}
     {tab==="gex"&&view!=="import"&&<GexView gex={gex} onSave={handleGex}/>}
+
+    {/* ECONOMIC CALENDAR */}
+    {tab==="cal"&&view!=="import"&&<CalendarView events={calendar} onChange={handleCalendar}/>}
 
     {/* REVIEW */}
     {tab==="review"&&view!=="import"&&<WeeklyReview entries={entries}/>}
