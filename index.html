@@ -78,6 +78,14 @@ const GEX_REGIME=[
    desc:"Dealers absorb moves. SETUP BUILDING phase — chop = liquidity forming. Wait for the sweep.",
    checks:["Equal highs/lows building","Previous session choppy","Dealers absorbing extremes","The sweep is coming — wait"]}];
 const TRADE_DIR=[{v:"long",l:"LONG",color:"#26C281"},{v:"short",l:"SHORT",color:"#E5484D"}];
+const MARKET_BIAS=[{v:"long",l:"▲ BULLISH",color:"#26C281"},{v:"short",l:"▼ BEARISH",color:"#E5484D"},{v:"neutral",l:"◈ NEUTRAL",color:"#F5A623"}];
+function fgLabel(v){
+  if(v<=25)return{l:"Extreme Fear",color:"#E5484D"};
+  if(v<=45)return{l:"Fear",color:"#F5734D"};
+  if(v<=55)return{l:"Neutral",color:"#F5A623"};
+  if(v<=75)return{l:"Greed",color:"#8BC24A"};
+  return{l:"Extreme Greed",color:"#26C281"};
+}
 const OUTCOME=[{v:"win",l:"WIN",color:"#26C281"},{v:"loss",l:"LOSS",color:"#E5484D"},
   {v:"be",l:"BREAKEVEN",color:"#F5A623"},{v:"open",l:"STILL OPEN",color:"#4C8DFF"},{v:"scratch",l:"SCRATCHED",color:"#566173"}];
 const OWNER=[{v:"buyers",l:"Buyers",color:C.green},{v:"sellers",l:"Sellers",color:C.red},{v:"contested",l:"Contested",color:C.amber}];
@@ -147,6 +155,10 @@ const loadWatch=()=>lsGet("watchlist",[]);
 const saveWatch=(arr)=>lsSet("watchlist",arr);
 const loadCalendar=()=>lsGet("calendar",[]);
 const saveCalendar=(arr)=>lsSet("calendar",arr);
+const loadDashboard=()=>lsGet("dashboard",{keyLevels:[],thesis:"",bias:"neutral",structure:"",fearGreed:50,fgUpdated:null,updated:null});
+const saveDashboard=(d)=>lsSet("dashboard",d);
+const loadBriefings=()=>lsGet("dailyBriefings",{});
+const saveBriefings=(obj)=>lsSet("dailyBriefings",obj);
 const loadSettings=()=>{
   const s=lsGet("settings",{riskPerTrade:"250",maxDailyLoss:"1000",account:"",anthropicApiKey:""});
   if(!s.circuitBreakers||!s.circuitBreakers.length) s.circuitBreakers=DEFAULT_CIRCUIT_BREAKERS;
@@ -166,6 +178,8 @@ const gexData=v=>GEX_REGIME.find(g=>g.v===v);
 const fmtDate=ts=>new Date(ts).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
 const weekKey=ts=>{const d=new Date(ts);const onejan=new Date(d.getFullYear(),0,1);
   const wk=Math.ceil((((d-onejan)/86400000)+onejan.getDay()+1)/7);return `${d.getFullYear()}-W${String(wk).padStart(2,"0")}`;};
+const monthKey=ts=>{const d=new Date(ts);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;};
+const monthKeyLabel=k=>{const [y,m]=k.split("-").map(Number);return new Date(y,m-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"});};
 
 const blankEntry=(settings)=>{
   const stepDefs=(settings&&settings.setupSteps&&settings.setupSteps.length)?settings.setupSteps:DEFAULT_SETUP_STEPS;
@@ -182,6 +196,58 @@ const blankEntry=(settings)=>{
 };
 const blankWatch=()=>({id:Date.now(),instrument:"NQ",price:"",owner:"buyers",
   triggerType:"break_above",note:"",armed:true,fired:false,firedAt:null});
+
+/* ════ DAILY BRIEFING — pre-market + reflection as a once-per-day task ════
+   Trades stay individual journal entries (unchanged); this is a companion
+   layer that groups them by calendar day and holds the shared pre-market
+   context + end-of-day reflection so you are not re-typing TFC/GEX per trade. */
+function dateKeyOf(tsOrDate){
+  const d=tsOrDate instanceof Date?tsOrDate:new Date(tsOrDate);
+  const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function todayKey(){return dateKeyOf(new Date());}
+function dateKeyLabel(k){
+  const [y,m,d]=k.split("-").map(Number);
+  const dt=new Date(y,m-1,d);
+  const today=todayKey(),yesterday=dateKeyOf(new Date(Date.now()-86400000));
+  if(k===today)return"TODAY";
+  if(k===yesterday)return"YESTERDAY";
+  return dt.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+}
+const blankBriefing=(dateKey,settings)=>{
+  const checkDefs=(settings&&settings.checklist&&settings.checklist.length)?settings.checklist:DEFAULT_CHECKLIST;
+  const checklist={};checkDefs.forEach(c=>{checklist[c.k]=null;});
+  return{
+    date:dateKey,
+    tfc:{"4H":"1",D:"1",W:"1",M:"1",Q:"1"},opens:{"4H":"at",D:"at",W:"at",M:"at",Q:"at"},
+    atrDaily:"",dailyOpenPrice:"",chartSignal:"",
+    gexRegime:"neg",gexCallWall:"",gexPutWall:"",gexFlip:"",spotPrice:"",
+    keyLevels:[],bias:"long",thesis:"",checklist,
+    dailyReflection:"",updated:null};
+};
+function groupEntriesByDate(entries){
+  const groups={};
+  entries.forEach(e=>{const k=dateKeyOf(e.id);(groups[k]=groups[k]||[]).push(e);});
+  const dateKeys=Object.keys(groups).sort((a,b)=>b.localeCompare(a));
+  return dateKeys.map(k=>{
+    const dayEntries=[...groups[k]].sort((a,b)=>a.id-b.id);
+    const closed=dayEntries.filter(e=>["win","loss","be"].includes(e.outcome));
+    const wins=closed.filter(e=>e.outcome==="win").length;
+    const winRate=closed.length?Math.round((wins/closed.length)*100):0;
+    const pnl=dayEntries.reduce((s,e)=>{const v=parseFloat(String(e.pnl).replace(/[^0-9.\-]/g,""));return s+(isNaN(v)?0:v);},0);
+    return{dateKey:k,entries:dayEntries,count:dayEntries.length,closed:closed.length,wins,winRate,pnl};
+  });
+}
+function statsForRange(entries,startDate,endDate){
+  const inRange=entries.filter(e=>{const d=new Date(e.id);return d>=startDate&&d<=endDate;});
+  const closed=inRange.filter(e=>["win","loss","be"].includes(e.outcome));
+  const wins=closed.filter(e=>e.outcome==="win").length;
+  const winRate=closed.length?Math.round((wins/closed.length)*100):0;
+  const pnl=inRange.reduce((s,e)=>{const v=parseFloat(String(e.pnl).replace(/[^0-9.\-]/g,""));return s+(isNaN(v)?0:v);},0);
+  const avgQuality=inRange.length?(inRange.reduce((s,e)=>s+qualityScore(e),0)/inRange.length):0;
+  return{count:inRange.length,closed:closed.length,wins,winRate,pnl,avgQuality};
+}
 
 /* ════ TOPSTEPX CSV IMPORTER (verified against real fills) ════ */
 function parseCSV(text){
@@ -639,6 +705,89 @@ function HabitChecklist({habits,onChange}){
     ))}
   </div>);}
 
+/* ════ MARKET DASHBOARD (shown at the top of the Journal home screen) ════ */
+function FearGreedGauge({value,onChange,updated}){
+  const fg=fgLabel(value);
+  const isToday=updated&&isSameDate(new Date(updated),new Date());
+  return(<div>
+    <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:8}}>
+      <span style={{fontFamily:mono,fontWeight:700,fontSize:"30px",color:fg.color,lineHeight:1}}>{value}</span>
+      <span style={{fontFamily:mono,fontWeight:700,fontSize:"13px",color:fg.color,letterSpacing:"0.04em"}}>{fg.l.toUpperCase()}</span>
+      <span style={{marginLeft:"auto",fontFamily:mono,fontSize:"9px",color:isToday?C.green:C.red}}>
+        {isToday?"✓ UPDATED TODAY":updated?"⚠ NEEDS TODAY\u2019S UPDATE":"⚠ NOT SET YET"}</span>
+    </div>
+    <div style={{position:"relative",height:10,borderRadius:"999px",
+      background:"linear-gradient(90deg, #E5484D 0%, #F5734D 25%, #F5A623 50%, #8BC24A 75%, #26C281 100%)",marginBottom:10}}>
+      <div style={{position:"absolute",top:-3,left:`calc(${value}% - 8px)`,width:16,height:16,borderRadius:"50%",
+        background:"#0A0A0A",border:`3px solid ${fg.color}`,boxShadow:`0 0 8px ${fg.color}AA`}}/>
+    </div>
+    <input type="range" min="0" max="100" value={value} onChange={e=>onChange(parseInt(e.target.value,10))}
+      style={{width:"100%",accentColor:fg.color}}/>
+    <div style={{display:"flex",justifyContent:"space-between",fontFamily:mono,fontSize:"8px",color:C.dim,marginTop:2}}>
+      <span>EXTREME FEAR</span><span>NEUTRAL</span><span>EXTREME GREED</span></div>
+  </div>);}
+
+function DashboardCard({dashboard,onChange}){
+  const [expanded,setExpanded]=useState(true);
+  const set=(f,v)=>onChange({...dashboard,[f]:v,updated:Date.now()});
+  const setFearGreed=(v)=>onChange({...dashboard,fearGreed:v,fgUpdated:Date.now(),updated:Date.now()});
+  const biasInfo=MARKET_BIAS.find(b=>b.v===dashboard.bias)||MARKET_BIAS[2];
+
+  return(<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:"14px",padding:"16px",marginBottom:16}}>
+    <div onClick={()=>setExpanded(!expanded)} style={{display:"flex",alignItems:"center",cursor:"pointer"}}>
+      <div style={{fontFamily:mono,fontSize:"9px",color:C.amber,letterSpacing:"0.18em"}}>◈ MARKET DASHBOARD</div>
+      <span style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontFamily:mono,fontSize:"11px",fontWeight:700,color:biasInfo.color}}>{biasInfo.l}</span>
+        <span style={{color:C.dim,fontSize:"12px"}}>{expanded?"▲":"▼"}</span>
+      </span>
+    </div>
+
+    {!expanded&&dashboard.thesis&&(
+      <div style={{fontFamily:sans,fontSize:"12px",color:C.muted,marginTop:10,lineHeight:1.5,
+        overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{dashboard.thesis}</div>
+    )}
+
+    {expanded&&(<div style={{marginTop:16,display:"flex",flexDirection:"column",gap:18}}>
+
+      {/* Fear & Greed */}
+      <div>
+        <div style={{fontFamily:mono,fontSize:"9px",color:C.dim,letterSpacing:"0.12em",marginBottom:10}}>FEAR &amp; GREED INDEX — UPDATE DAILY</div>
+        <FearGreedGauge value={dashboard.fearGreed} onChange={setFearGreed} updated={dashboard.fgUpdated}/>
+      </div>
+
+      {/* Overall Bias */}
+      <div>
+        <div style={{fontFamily:mono,fontSize:"9px",color:C.dim,letterSpacing:"0.12em",marginBottom:8}}>OVERALL MARKET BIAS</div>
+        <div style={{display:"flex",gap:8}}>
+          {MARKET_BIAS.map(b=>(<Pill key={b.v} color={b.color} active={dashboard.bias===b.v} onClick={()=>set("bias",b.v)}>{b.l}</Pill>))}
+        </div>
+      </div>
+
+      {/* Thesis */}
+      <Field label="Market Thesis">
+        <textarea value={dashboard.thesis} onChange={e=>set("thesis",e.target.value)} rows={3}
+          placeholder="What is the market doing right now, and why? Your read on the current environment…"
+          style={{...inp(),fontFamily:sans,fontSize:"13px",lineHeight:1.6,resize:"vertical"}}/>
+      </Field>
+
+      {/* Structure */}
+      <Field label="Market Structure">
+        <textarea value={dashboard.structure} onChange={e=>set("structure",e.target.value)} rows={3}
+          placeholder="TFC posture, key opens, trend/range condition, what would change your mind…"
+          style={{...inp(),fontFamily:sans,fontSize:"13px",lineHeight:1.6,resize:"vertical"}}/>
+      </Field>
+
+      {/* Key Levels */}
+      <div>
+        <div style={{fontFamily:mono,fontSize:"9px",color:C.dim,letterSpacing:"0.12em",marginBottom:8}}>KEY LEVELS IN PLAY</div>
+        <LevelEditor levels={dashboard.keyLevels} onChange={v=>set("keyLevels",v)}/>
+      </div>
+
+      {dashboard.updated&&(<div style={{fontFamily:mono,fontSize:"9px",color:C.dim,textAlign:"center"}}>
+        Last updated {new Date(dashboard.updated).toLocaleString("en-US",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>)}
+    </div>)}
+  </div>);}
+
 /* ════ AUTO-GRADE PANEL ════ */
 function AutoGradePanel({entry}){
   const g=computeAutoGrade(entry);
@@ -648,6 +797,67 @@ function AutoGradePanel({entry}){
       <div style={{fontFamily:mono,fontSize:"8px",color:C.dim,letterSpacing:"0.1em",marginTop:2}}>{g.score10.toFixed(1)}/10</div></div>
     <div style={{display:"flex",flexDirection:"column",gap:4}}>
       {g.why.map((w,i)=>(<div key={i} style={{fontFamily:sans,fontSize:"11px",color:C.muted}}>{w}</div>))}
+    </div>
+  </div>);}
+
+/* ════ DAILY BRIEFING FORM — pre-market context + end-of-day reflection, once per day ════ */
+function DailyBriefingForm({initial,settings,onSave,onClose}){
+  const [b,setB]=useState(initial);
+  const set=(f,v)=>setB(p=>({...p,[f]:v}));
+  const setTfc=(tf,v)=>setB(p=>({...p,tfc:{...p.tfc,[tf]:v}}));
+  const setOpen=(tf,v)=>setB(p=>({...p,opens:{...p.opens,[tf]:v}}));
+  const toggleKeyed=(k)=>setB(p=>({...p,checklist:{...p.checklist,[k]:!(p.checklist&&p.checklist[k]===true)}}));
+  const checkDefs=(settings&&settings.checklist&&settings.checklist.length)?settings.checklist:DEFAULT_CHECKLIST;
+
+  return(<div style={{display:"flex",flexDirection:"column",gap:22}}>
+    <div><SectionHead n="◈" title={dateKeyLabel(b.date)+" — Pre-Market Briefing"} sub="Set once for the day. Every trade you log today can pull from this context."/></div>
+
+    <div><SectionHead n="01" title="Step 0 — GEX Regime"/>
+      <GexPanel value={b.gexRegime} onChange={v=>set("gexRegime",v)}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginTop:12}}>
+        <Field label="Call Wall"><input value={b.gexCallWall} onChange={ev=>set("gexCallWall",ev.target.value)} placeholder="resist" style={inp(C.red)}/></Field>
+        <Field label="Put Wall"><input value={b.gexPutWall} onChange={ev=>set("gexPutWall",ev.target.value)} placeholder="support" style={inp(C.green)}/></Field>
+        <Field label="Flip Level"><input value={b.gexFlip} onChange={ev=>set("gexFlip",ev.target.value)} placeholder="inflection" style={inp(C.amber)}/></Field>
+        <Field label="Spot / Index"><input value={b.spotPrice} onChange={ev=>set("spotPrice",ev.target.value)} placeholder="underlying" style={inp()}/></Field>
+      </div></div>
+
+    <div><SectionHead n="02" title="Time Frame Continuity"/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1.4fr",gap:10,marginBottom:14}}>
+        <Field label="ATR (D)"><input value={b.atrDaily} onChange={ev=>set("atrDaily",ev.target.value)} placeholder="712.61" style={inp(C.slate)}/></Field>
+        <Field label="Daily Open"><input value={b.dailyOpenPrice} onChange={ev=>set("dailyOpenPrice",ev.target.value)} placeholder="price" style={inp(C.slate)}/></Field>
+        <Field label="Chart Signal"><input value={b.chartSignal} onChange={ev=>set("chartSignal",ev.target.value)} placeholder="e.g. REV 2-2-2 ▲" style={inp(C.amber)}/></Field>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {TF_LIST.map(tf=>(<div key={tf} style={{display:"flex",gap:9,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontFamily:mono,fontWeight:700,fontSize:"13px",color:tfcColor(b.tfc[tf]),width:30}}>{tf}</span>
+          <select value={b.tfc[tf]} onChange={ev=>setTfc(tf,ev.target.value)} style={{...sel(tfcColor(b.tfc[tf])),width:130}}>
+            {CANDLE.map(c=><option key={c.v} value={c.v}>{c.l}</option>)}</select>
+          <select value={b.opens[tf]} onChange={ev=>setOpen(tf,ev.target.value)} style={{...sel(b.opens[tf]==="above"?C.green:b.opens[tf]==="below"?C.red:C.amber),width:130}}>
+            {OPENS.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select></div>))}</div></div>
+
+    <div><SectionHead n="03" title="Key Levels — Battle Map"/>
+      <LevelEditor levels={b.keyLevels} onChange={v=>set("keyLevels",v)}/></div>
+
+    <div><SectionHead n="04" title="Bias Indicator" sub="Auto-computed from today's TFC, GEX, and levels."/>
+      <BiasIndicator entry={b}/></div>
+
+    <div><SectionHead n="05" title="Market Thesis"/>
+      <textarea value={b.thesis} onChange={ev=>set("thesis",ev.target.value)} rows={4}
+        placeholder="What is today's plan? Only looking for LONG / SHORT? What confirms, what invalidates?"
+        style={{...inp(),fontFamily:sans,fontSize:"13px",lineHeight:1.6,resize:"vertical"}}/></div>
+
+    <div><SectionHead n="06" title="Pre-Trade Checklist"/>
+      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"6px 14px"}}>
+        {checkDefs.map(c=>(<CheckRow key={c.k} checked={b.checklist[c.k]===true} onToggle={()=>toggleKeyed(c.k)}>{c.l}</CheckRow>))}</div></div>
+
+    <div><SectionHead n="07" title="End-of-Day Reflection" sub="Once for the whole session — how did today go overall?"/>
+      <textarea value={b.dailyReflection} onChange={ev=>set("dailyReflection",ev.target.value)} rows={4}
+        placeholder="Did I follow today's plan across all trades? What pattern showed up today? One thing to carry into tomorrow…"
+        style={{...inp(),fontFamily:sans,fontSize:"13px",lineHeight:1.6,resize:"vertical"}}/></div>
+
+    <div style={{display:"flex",gap:10,position:"sticky",bottom:0,background:`linear-gradient(180deg, transparent, ${C.bg} 40%)`,paddingTop:16,paddingBottom:6}}>
+      <button onClick={onClose} style={{flex:"0 0 auto",padding:"13px 20px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:"9px",color:C.muted,fontFamily:mono,fontSize:"12px",cursor:"pointer"}}>CANCEL</button>
+      <button onClick={()=>onSave({...b,updated:Date.now()})} style={{flex:1,padding:"13px",background:`linear-gradient(135deg, ${C.amber}, ${C.amber}CC)`,border:"none",borderRadius:"9px",color:"#0A0A0A",fontFamily:mono,fontWeight:700,fontSize:"12px",letterSpacing:"0.1em",cursor:"pointer"}}>◈ SAVE BRIEFING</button>
     </div>
   </div>);}
 
@@ -937,11 +1147,14 @@ function WatchlistView({watch,onChange,onCheckAlerts}){
 
 /* ════ WEEKLY REVIEW ════ */
 function WeeklyReview({entries}){
-  const [weekOffset,setWeekOffset]=useState(0); // 0 = current week
+  const [period,setPeriod]=useState("week"); // "week" | "month"
+  const [offset,setOffset]=useState(0); // 0 = current period
   const now=new Date();
-  const targetDate=new Date(now.getTime()-weekOffset*7*86400000);
-  const targetKey=weekKey(targetDate.getTime());
-  const weekEntries=entries.filter(e=>weekKey(e.id)===targetKey);
+  const targetDate=period==="week"?new Date(now.getTime()-offset*7*86400000):new Date(now.getFullYear(),now.getMonth()-offset,1);
+  const targetKey=period==="week"?weekKey(targetDate.getTime()):monthKey(targetDate.getTime());
+  const targetLabel=period==="week"?(offset===0?"THIS WK":targetKey):(offset===0?"THIS MONTH":monthKeyLabel(targetKey));
+  const weekEntries=entries.filter(e=>(period==="week"?weekKey(e.id):monthKey(e.id))===targetKey);
+  const changePeriod=(p)=>{setPeriod(p);setOffset(0);};
 
   const closed=weekEntries.filter(e=>["win","loss","be"].includes(e.outcome));
   const wins=closed.filter(e=>e.outcome==="win");
@@ -982,16 +1195,21 @@ function WeeklyReview({entries}){
       <span style={{fontFamily:sans,fontSize:"12px",color:C.red,fontWeight:600}}>{lossVal}</span></div>);
 
   return(<div style={{animation:"fadeUp 0.3s ease both"}}>
-    <SectionHead n="◈" title="Weekly Review" sub="What your winners share, where you bled, and whether you stuck to the system."
+    <SectionHead n="◈" title={period==="week"?"Weekly Review":"Monthly Review"} sub="What your winners share, where you bled, and whether you stuck to the system."
       right={<div style={{display:"flex",gap:6,alignItems:"center"}}>
-        <button onClick={()=>setWeekOffset(o=>o+1)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:"6px",padding:"4px 9px",fontFamily:mono,fontSize:"11px",cursor:"pointer"}}>‹</button>
-        <span style={{fontFamily:mono,fontSize:"10px",color:C.amber,minWidth:64,textAlign:"center"}}>{weekOffset===0?"THIS WK":targetKey}</span>
-        <button onClick={()=>setWeekOffset(o=>Math.max(0,o-1))} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:"6px",padding:"4px 9px",fontFamily:mono,fontSize:"11px",cursor:"pointer"}}>›</button>
+        <button onClick={()=>setOffset(o=>o+1)} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:"6px",padding:"4px 9px",fontFamily:mono,fontSize:"11px",cursor:"pointer"}}>‹</button>
+        <span style={{fontFamily:mono,fontSize:"10px",color:C.amber,minWidth:64,textAlign:"center"}}>{targetLabel}</span>
+        <button onClick={()=>setOffset(o=>Math.max(0,o-1))} style={{background:"transparent",border:`1px solid ${C.border}`,color:C.muted,borderRadius:"6px",padding:"4px 9px",fontFamily:mono,fontSize:"11px",cursor:"pointer"}}>›</button>
       </div>}/>
+
+    <div style={{display:"flex",gap:7,marginBottom:16}}>
+      <Pill color={C.amber} active={period==="week"} onClick={()=>changePeriod("week")} sm>WEEK</Pill>
+      <Pill color={C.amber} active={period==="month"} onClick={()=>changePeriod("month")} sm>MONTH</Pill>
+    </div>
 
     {weekEntries.length===0?(
       <div style={{textAlign:"center",padding:"50px 20px",fontFamily:sans,fontSize:"12px",color:C.dim}}>
-        No entries logged for this week. Use ‹ › to browse other weeks.</div>
+        No entries logged for this {period==="week"?"week":"month"}. Use ‹ › to browse other {period==="week"?"weeks":"months"}.</div>
     ):(<>
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
         {stat("TRADES",weekEntries.length,C.blue)}
@@ -1015,12 +1233,12 @@ function WeeklyReview({entries}){
 
       {/* Edge insight */}
       <div style={{background:`${C.green}0A`,border:`1px solid ${C.green}33`,borderRadius:"12px",padding:"15px",marginBottom:14}}>
-        <div style={{fontFamily:mono,fontSize:"9px",color:C.green,letterSpacing:"0.14em",marginBottom:8}}>◈ YOUR EDGE THIS WEEK</div>
+        <div style={{fontFamily:mono,fontSize:"9px",color:C.green,letterSpacing:"0.14em",marginBottom:8}}>◈ YOUR EDGE THIS {period==="week"?"WEEK":"MONTH"}</div>
         <div style={{fontFamily:sans,fontSize:"13px",color:C.textDim,lineHeight:1.6}}>
           {wins.length>0?(<>Your winners clustered in <b style={{color:C.green}}>{winGex}</b> environments
             {winInst!=="—"&&<> on <b style={{color:C.green}}>{winInst.split(" ")[0]}</b></>}, mostly <b style={{color:C.green}}>{winDir.split(" ")[0]}</b>.
             Average winning-setup quality was <b style={{color:C.green}}>{avgWinQ}/10</b>. Do more of this.</>)
-            :"No winning trades logged yet this week. Focus on A+ setups only."}</div>
+            :`No winning trades logged yet this ${period==="week"?"week":"month"}. Focus on A+ setups only.`}</div>
       </div>
 
       {/* Discipline check */}
@@ -1030,12 +1248,12 @@ function WeeklyReview({entries}){
           {lowQTaken.length>0?(<>You took <b style={{color:C.red}}>{lowQTaken.length}</b> trade{lowQTaken.length>1?"s":""} with a quality score below 8 (your "TAKE IT" threshold).
             {avgLossQ!=="—"&&parseFloat(avgLossQ)<parseFloat(avgWinQ)&&<> Your losers averaged <b style={{color:C.red}}>{avgLossQ}/10</b> vs winners at <b style={{color:C.green}}>{avgWinQ}/10</b> — the score is telling you the truth.</>}
             {" "}These are the trades to cut.</>)
-            :<>Every closed trade this week met your quality threshold of 8+. <b style={{color:C.green}}>Clean discipline.</b> Protect this.</>}</div>
+            :<>Every closed trade this {period==="week"?"week":"month"} met your quality threshold of 8+. <b style={{color:C.green}}>Clean discipline.</b> Protect this.</>}</div>
       </div>
 
       {/* Reflections roll-up */}
       <div style={{marginBottom:8}}>
-        <div style={{fontFamily:mono,fontSize:"9px",color:C.dim,letterSpacing:"0.12em",marginBottom:10}}>REFLECTIONS THIS WEEK</div>
+        <div style={{fontFamily:mono,fontSize:"9px",color:C.dim,letterSpacing:"0.12em",marginBottom:10}}>REFLECTIONS THIS {period==="week"?"WEEK":"MONTH"}</div>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {weekEntries.filter(e=>e.reflection).map(e=>(
             <div key={e.id} style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:"9px",padding:"11px 13px"}}>
@@ -1074,6 +1292,51 @@ function JournalCard({entry,onOpen,onDelete}){
         <span style={{fontFamily:mono,fontSize:"11px",fontWeight:700,color:tfcColor(entry.tfc[tf])}}>{tfcLabel(entry.tfc[tf])}</span></span>))}
       <span style={{marginLeft:"auto",fontFamily:mono,fontSize:"9px",color:gexData(entry.gexRegime)?.color}}>{entry.gexRegime==="neg"?"−GEX":entry.gexRegime==="pos"?"+GEX":"FLIP"}</span></div>
     {entry.thesis&&<p style={{fontFamily:sans,fontSize:"12px",color:C.muted,marginTop:9,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{entry.thesis}</p>}
+  </div>);}
+
+/* ════ DAY GROUP — one calendar day, its briefing summary, and its trades ════ */
+function DayGroup({group,briefing,onOpenTrade,onDeleteTrade,onAddTrade,onOpenBriefing}){
+  const [expanded,setExpanded]=useState(group.dateKey===todayKey());
+  const hasBriefing=briefing&&(briefing.thesis||briefing.dailyReflection||(briefing.keyLevels&&briefing.keyLevels.length));
+  const pnlColor=group.pnl>=0?C.green:C.red;
+
+  return(<div style={{marginBottom:16}}>
+    <div onClick={()=>setExpanded(!expanded)} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",
+      padding:"10px 4px",borderBottom:`1px solid ${C.faint}`}}>
+      <span style={{fontFamily:mono,fontWeight:700,fontSize:"12px",color:group.dateKey===todayKey()?C.amber:C.textDim,letterSpacing:"0.04em"}}>
+        {dateKeyLabel(group.dateKey)}</span>
+      <span style={{fontFamily:mono,fontSize:"10px",color:C.dim}}>{group.count} trade{group.count!==1?"s":""}</span>
+      {group.closed>0&&(<span style={{fontFamily:mono,fontSize:"10px",color:group.winRate>=50?C.green:C.amber}}>{group.winRate}% WR</span>)}
+      <span style={{fontFamily:mono,fontSize:"11px",fontWeight:700,color:pnlColor,marginLeft:"auto"}}>{group.pnl>=0?"+":""}{group.pnl.toFixed(1)}</span>
+      <span style={{color:C.dim,fontSize:"11px"}}>{expanded?"▲":"▼"}</span>
+    </div>
+
+    {expanded&&(<div style={{marginTop:10}}>
+      {/* Pre-market briefing summary / edit link */}
+      <div onClick={()=>onOpenBriefing(group.dateKey)} style={{background:C.panel,border:`1px solid ${hasBriefing?C.amber+"33":C.border}`,
+        borderRadius:"9px",padding:"11px 13px",marginBottom:10,cursor:"pointer"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontFamily:mono,fontSize:"9px",color:C.amber,letterSpacing:"0.08em"}}>◈ PRE-MARKET BRIEFING</span>
+          <span style={{marginLeft:"auto",fontFamily:mono,fontSize:"9px",color:C.dim}}>{hasBriefing?"EDIT →":"+ ADD →"}</span>
+        </div>
+        {hasBriefing?(<>
+          {briefing.thesis&&<p style={{fontFamily:sans,fontSize:"11px",color:C.muted,marginTop:6,lineHeight:1.4,
+            overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{briefing.thesis}</p>}
+          {briefing.dailyReflection&&(<div style={{marginTop:6,paddingTop:6,borderTop:`1px solid ${C.faint}`}}>
+            <span style={{fontFamily:mono,fontSize:"8px",color:C.dim,letterSpacing:"0.06em"}}>EOD REFLECTION · </span>
+            <span style={{fontFamily:sans,fontSize:"11px",color:C.muted}}>{briefing.dailyReflection.slice(0,80)}{briefing.dailyReflection.length>80?"…":""}</span></div>)}
+        </>):(<p style={{fontFamily:sans,fontSize:"11px",color:C.dim,marginTop:6}}>No briefing logged for this day yet.</p>)}
+      </div>
+
+      {/* Trade cards */}
+      <div style={{display:"flex",flexDirection:"column",gap:9}}>
+        {group.entries.map(e=><JournalCard key={e.id} entry={e} onOpen={onOpenTrade} onDelete={onDeleteTrade}/>)}
+      </div>
+
+      {/* Add trade to this day */}
+      <button onClick={()=>onAddTrade(group.dateKey)} style={{width:"100%",marginTop:9,padding:"10px",background:"transparent",
+        border:`1px dashed ${C.border}`,borderRadius:"8px",color:C.dim,fontFamily:mono,fontSize:"10px",letterSpacing:"0.06em",cursor:"pointer"}}>+ ADD TRADE TO THIS DAY</button>
+    </div>)}
   </div>);}
 
 /* ════ STATS + DISCIPLINE ════ */
@@ -1537,15 +1800,39 @@ function StratOS(){
   const [settings,setSettings]=useState(loadSettings());
   const [gex,setGex]=useState(loadGex());
   const [calendar,setCalendar]=useState([]);
+  const [dashboard,setDashboard]=useState(loadDashboard());
+  const [briefings,setBriefings]=useState({});
+  const [editingBriefingDate,setEditingBriefingDate]=useState(null);
   const [clock,setClock]=useState(new Date());
   const [toast,setToast]=useState("");
 
   useEffect(()=>{const t=setInterval(()=>setClock(new Date()),1000);return()=>clearInterval(t);},[]);
-  useEffect(()=>{setEntries(loadEntries());setWatch(loadWatch());setGex(loadGex());setCalendar(loadCalendar());},[]);
+  useEffect(()=>{setEntries(loadEntries());setWatch(loadWatch());setGex(loadGex());setCalendar(loadCalendar());setDashboard(loadDashboard());setBriefings(loadBriefings());},[]);
   const flash=m=>{setToast(m);setTimeout(()=>setToast(""),2200);};
   const handleCalendar=arr=>{setCalendar(arr);saveCalendar(arr);};
+  const handleDashboard=d=>{setDashboard(d);saveDashboard(d);};
+  const openBriefing=(dateKey)=>{setEditingBriefingDate(dateKey);setView("briefing");setTab("home");};
+  const handleSaveBriefing=(b)=>{const next={...briefings,[b.date]:b};setBriefings(next);saveBriefings(next);setView("list");setEditingBriefingDate(null);flash("Briefing saved");};
 
-  const startNew=()=>{setEditing(blankEntry(settings));setIsEdit(false);setView("form");setTab("home");};
+  const startNew=(dateKey)=>{
+    const target=dateKey||todayKey();
+    const seed=blankEntry(settings);
+    const dayBrief=briefings[target];
+    if(dayBrief){
+      // pre-fill trade-level TFC/GEX/levels/bias/thesis context from the day's briefing
+      Object.assign(seed,{
+        tfc:{...dayBrief.tfc},opens:{...dayBrief.opens},
+        atrDaily:dayBrief.atrDaily,dailyOpenPrice:dayBrief.dailyOpenPrice,chartSignal:dayBrief.chartSignal,
+        gexRegime:dayBrief.gexRegime,gexCallWall:dayBrief.gexCallWall,gexPutWall:dayBrief.gexPutWall,gexFlip:dayBrief.gexFlip,spotPrice:dayBrief.spotPrice,
+        keyLevels:dayBrief.keyLevels?[...dayBrief.keyLevels]:[],bias:dayBrief.bias,thesis:dayBrief.thesis
+      });
+    }
+    if(dateKey&&dateKey!==todayKey()){
+      const [y,m,d]=dateKey.split("-").map(Number);
+      seed.id=new Date(y,m-1,d,12,0,0).getTime();
+    }
+    setEditing(seed);setIsEdit(false);setView("form");setTab("home");
+  };
   const openEntry=e=>{setEditing(e);setIsEdit(true);setView("form");setTab("home");};
   const handleSave=e=>{const arr=[e,...entries.filter(x=>x.id!==e.id)].sort((a,b)=>b.id-a.id);setEntries(arr);saveEntries(arr);setView("list");setEditing(null);flash("Saved to journal");};
   const handleDelete=id=>{const arr=entries.filter(e=>e.id!==id);setEntries(arr);saveEntries(arr);};
@@ -1557,7 +1844,7 @@ function StratOS(){
     setEntries(arr);saveEntries(arr);setTab("home");setView("list");
     flash(`Imported ${newEntries.length} trade${newEntries.length!==1?"s":""}`);
   };
-  const handleExport=()=>{const data={entries,watch,settings,calendar,exported:Date.now()};
+  const handleExport=()=>{const data={entries,watch,settings,calendar,dashboard,briefings,exported:Date.now()};
     const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);const a=document.createElement("a");
     a.href=url;a.download=`stratos-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);flash("Journal exported");};
@@ -1566,6 +1853,8 @@ function StratOS(){
     if(d.watch){setWatch(d.watch);saveWatch(d.watch);}
     if(d.settings){setSettings(d.settings);saveSettings(d.settings);}
     if(d.calendar){setCalendar(d.calendar);saveCalendar(d.calendar);}
+    if(d.dashboard){setDashboard(d.dashboard);saveDashboard(d.dashboard);}
+    if(d.briefings){setBriefings(d.briefings);saveBriefings(d.briefings);}
     flash("Journal imported");}catch(_){flash("Import failed — invalid file");}};
 
   const filtered=filter==="ALL"?entries:entries.filter(e=>e.instrument===filter);
@@ -1580,7 +1869,7 @@ function StratOS(){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
       <div><div style={{fontFamily:mono,fontSize:"9px",color:C.amber,letterSpacing:"0.22em",marginBottom:5}}>◈ STRAT OS</div>
         <h1 style={{fontFamily:sans,fontWeight:700,fontSize:"21px",color:"#F3F6FA",letterSpacing:"-0.02em",lineHeight:1}}>
-          {view==="form"?(isEdit?"Edit Brief":"New Brief"):view==="import"?"Import Trades":tab==="watch"?"Watchlist":tab==="gex"?"Today's GEX":tab==="cal"?"Economic Calendar":tab==="review"?"Weekly Review":tab==="settings"?"Settings":"Trading Platform"}</h1></div>
+          {view==="form"?(isEdit?"Edit Trade":"New Trade"):view==="briefing"?"Daily Briefing":view==="import"?"Import Trades":tab==="watch"?"Watchlist":tab==="gex"?"Today's GEX":tab==="cal"?"Economic Calendar":tab==="review"?"Weekly Review":tab==="settings"?"Settings":"Trading Platform"}</h1></div>
       <div style={{textAlign:"right"}}>
         <div style={{fontFamily:mono,fontSize:"15px",color:C.muted}}>{clock.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
         <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-end",marginTop:3}}>
@@ -1590,27 +1879,37 @@ function StratOS(){
 
     {/* HOME */}
     {tab==="home"&&view==="list"&&(<div style={{animation:"fadeUp 0.3s ease both"}}>
+      <DashboardCard dashboard={dashboard} onChange={handleDashboard}/>
       <StatsBar entries={entries}/>
       <DisciplinePanel breakers={settings.circuitBreakers} onGoToSettings={()=>setTab("settings")}/>
       <div style={{display:"flex",gap:7,marginBottom:16,flexWrap:"wrap"}}>
         <Pill color={C.amber} active={filter==="ALL"} onClick={()=>setFilter("ALL")}>ALL</Pill>
         {INSTRUMENTS.map(i=><Pill key={i.id} color={i.color} active={filter===i.id} onClick={()=>setFilter(i.id)}>{i.id}</Pill>)}</div>
       <div style={{display:"flex",gap:10,marginBottom:20}}>
-        <button onClick={startNew} style={{flex:1,padding:"15px",background:`linear-gradient(135deg, ${C.amber}, ${C.amber}CC)`,border:"none",borderRadius:"12px",
-          color:"#0A0A0A",fontFamily:mono,fontWeight:700,fontSize:"13px",letterSpacing:"0.08em",cursor:"pointer",boxShadow:`0 4px 20px ${C.amber}33`}}>◈ NEW BRIEF</button>
+        <button onClick={()=>startNew()} style={{flex:1,padding:"15px",background:`linear-gradient(135deg, ${C.amber}, ${C.amber}CC)`,border:"none",borderRadius:"12px",
+          color:"#0A0A0A",fontFamily:mono,fontWeight:700,fontSize:"13px",letterSpacing:"0.08em",cursor:"pointer",boxShadow:`0 4px 20px ${C.amber}33`}}>◈ NEW TRADE (TODAY)</button>
         <button onClick={()=>{setView("import");}} style={{flex:"0 0 auto",padding:"15px 18px",background:"transparent",border:`1px solid ${C.blue}55`,borderRadius:"12px",
           color:C.blue,fontFamily:mono,fontWeight:700,fontSize:"12px",letterSpacing:"0.06em",cursor:"pointer"}}>↑ IMPORT CSV</button>
       </div>
       {filtered.length===0?(<div style={{textAlign:"center",padding:"50px 20px"}}>
         <div style={{fontFamily:mono,fontSize:"12px",color:C.muted,marginBottom:6}}>No entries yet</div>
-        <div style={{fontFamily:sans,fontSize:"12px",color:C.dim}}>Start your first brief above. Everything you log is saved and compounds into your edge.</div></div>
-      ):(<div style={{display:"flex",flexDirection:"column",gap:11}}>
-        {filtered.map(e=><JournalCard key={e.id} entry={e} onOpen={openEntry} onDelete={handleDelete}/>)}</div>)}
+        <div style={{fontFamily:sans,fontSize:"12px",color:C.dim}}>Start your first trade above. Everything you log is saved and compounds into your edge.</div></div>
+      ):(<div>
+        {groupEntriesByDate(filtered).map(group=>(
+          <DayGroup key={group.dateKey} group={group} briefing={briefings[group.dateKey]}
+            onOpenTrade={openEntry} onDeleteTrade={handleDelete}
+            onAddTrade={(dk)=>startNew(dk)} onOpenBriefing={openBriefing}/>
+        ))}
+      </div>)}
     </div>)}
 
     {tab==="home"&&view==="form"&&editing&&(<div style={{animation:"fadeUp 0.3s ease both"}}>
       <EntryForm initial={editing} settings={settings} isEdit={isEdit} onSave={handleSave} onCancel={()=>{setView("list");setEditing(null);}}
         onDelete={(id)=>{handleDelete(id);setView("list");setEditing(null);flash("Entry deleted");}}/></div>)}
+
+    {tab==="home"&&view==="briefing"&&editingBriefingDate&&(<div style={{animation:"fadeUp 0.3s ease both"}}>
+      <DailyBriefingForm initial={briefings[editingBriefingDate]||blankBriefing(editingBriefingDate,settings)} settings={settings}
+        onSave={handleSaveBriefing} onClose={()=>{setView("list");setEditingBriefingDate(null);}}/></div>)}
 
     {/* IMPORT */}
     {view==="import"&&<ImportView onImportTrades={handleImportTrades} onClose={()=>{setView("list");setTab("home");}}/>}
@@ -1636,7 +1935,7 @@ function StratOS(){
       borderRadius:"999px",zIndex:50,boxShadow:"0 8px 24px rgba(0,0,0,0.4)"}}>{toast}</div>)}
 
     {/* Bottom Tab Bar */}
-    {view!=="form"&&(<div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:40,
+    {view!=="form"&&view!=="briefing"&&(<div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:40,
       background:`${C.panel}F2`,borderTop:`1px solid ${C.border}`,backdropFilter:"blur(12px)",
       padding:"8px 12px calc(8px + env(safe-area-inset-bottom))",display:"flex",justifyContent:"space-around",maxWidth:760,margin:"0 auto"}}>
       {TABS.map(t=>(<button key={t.id} onClick={()=>{setTab(t.id);setView("list");}} style={{background:"transparent",border:"none",cursor:"pointer",
