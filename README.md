@@ -1,2 +1,2 @@
-# stratos
+# EdgeOS
 trading agent (1)
