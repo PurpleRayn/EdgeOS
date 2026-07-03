@@ -327,6 +327,239 @@ function tradeToEntry(t){
 const loadGex=()=>lsGet("gex",{img:null,regime:"neg",callWall:"",putWall:"",flip:"",note:"",updated:null});
 const saveGex=(g)=>lsSet("gex",g);
 
+/* ════ COMMAND LAYER — Contract · Decision Ledger · The Wall ════
+   Three primitives, per the EDGE OS design doc:
+   1. THE CONTRACT — a morning precommitment (direction, max trades, max loss,
+      one typed declaration). Sealed before the open, immutable after.
+   2. THE LOG — an append-only decision ledger. Every TAKE and every PASS is a
+      timestamped event. Passes are first-class data (Discipline P&L seed).
+   3. THE WALL — circuit breakers enforced by the app, not by memory. Contract
+      violated, 2 consecutive losses, or drawdown limit hit -> full lockout
+      screen until tomorrow. Override exists, is effortful, and is recorded. */
+const loadLedger=()=>lsGet("ledger",[]);
+const saveLedgerStore=(arr)=>lsSet("ledger",arr);
+const loadContracts=()=>lsGet("contracts",{});
+const saveContracts=(obj)=>lsSet("contracts",obj);
+const CONTRACT_DIRS=[
+  {v:"long",l:"LONGS ONLY",color:C.green},
+  {v:"short",l:"SHORTS ONLY",color:C.red},
+  {v:"either",l:"EITHER — SETUP DECIDES",color:C.blue},
+  {v:"none",l:"NO-TRADE DAY",color:C.muted}];
+const PASS_REASONS=["Score < 8","No sweep yet","GEX regime","At the flip","Chop / unclear","TFC fought it"];
+const OVERRIDE_SENTENCE="I am choosing to break my own circuit breaker";
+const COOLDOWN_MS=15*60*1000;
+const blankContract=(settings)=>({date:todayKey(),direction:"either",maxTrades:"2",
+  maxLoss:String((settings&&settings.maxDailyLoss)||"1000"),declaration:"",sealedAt:null});
+function parsePnl(v){const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isNaN(n)?0:n;}
+function fmtClock(ts){return new Date(ts).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});}
+function computeDayState(entries,contract,ledger){
+  const t=todayKey();
+  const dayEntries=entries.filter(e=>dateKeyOf(e.id)===t).sort((a,b)=>a.id-b.id);
+  const closed=dayEntries.filter(e=>["win","loss","be"].includes(e.outcome));
+  let consecLosses=0;
+  for(let i=closed.length-1;i>=0;i--){if(closed[i].outcome==="loss")consecLosses++;else break;}
+  const dayPnl=dayEntries.reduce((s,e)=>s+parsePnl(e.pnl),0);
+  const evs=ledger.filter(ev=>dateKeyOf(ev.ts)===t);
+  const takes=evs.filter(e=>e.type==="DECISION_TAKE").length;
+  const passes=evs.filter(e=>e.type==="DECISION_PASS").length;
+  const overridden=evs.some(e=>e.type==="WALL_OVERRIDE");
+  let cooldownUntil=0;
+  for(let i=evs.length-1;i>=0;i--){if(evs[i].type==="COOLDOWN_START"){cooldownUntil=evs[i].ts+COOLDOWN_MS;break;}}
+  const maxLoss=contract?(parseFloat(contract.maxLoss)||0):1000;
+  const maxTrades=contract?(parseInt(contract.maxTrades,10)||0):0;
+  const reasons=[];
+  if(consecLosses>=2)reasons.push("2 losses in a row — your rule: close the platform, done for the day.");
+  if(maxLoss>0&&dayPnl<=-maxLoss)reasons.push(`$${Math.abs(Math.round(dayPnl)).toLocaleString()} drawdown — daily loss limit of $${maxLoss.toLocaleString()} hit.`);
+  if(contract&&contract.sealedAt){
+    if(maxTrades>0&&dayEntries.length>maxTrades)reasons.push(`Trade count exceeded contract — ${dayEntries.length} taken, ${maxTrades} allowed.`);
+    if(contract.direction==="none"&&dayEntries.length>0)reasons.push("You traded on a declared NO-TRADE day.");
+    if(contract.direction==="long"&&dayEntries.some(e=>e.bias==="short"))reasons.push("SHORT taken on a LONGS-ONLY contract.");
+    if(contract.direction==="short"&&dayEntries.some(e=>e.bias==="long"))reasons.push("LONG taken on a SHORTS-ONLY contract.");
+  }
+  return{dayEntries,closed,consecLosses,dayPnl,takes,passes,evs,overridden,cooldownUntil,
+    maxLoss,maxTrades,reasons,tripped:reasons.length>0&&!overridden};
+}
+function allTimeDecisionStats(ledger){
+  let takes=0,passes=0;
+  ledger.forEach(e=>{if(e.type==="DECISION_TAKE")takes++;else if(e.type==="DECISION_PASS")passes++;});
+  return{takes,passes};
+}
+
+/* ── Regime Ribbon — ambient context, every screen ── */
+function RegimeRibbon({gex,contract,dayState}){
+  const g=GEX_REGIME.find(r=>r.v===(gex&&gex.regime))||GEX_REGIME[0];
+  const seg=(label,value,color)=>(
+    <span style={{display:"inline-flex",gap:5,alignItems:"baseline",whiteSpace:"nowrap"}}>
+      <span style={{color:C.dim}}>{label}</span>
+      <span style={{color:color||C.textDim,fontWeight:700}}>{value}</span></span>);
+  const dirDef=contract&&contract.sealedAt?CONTRACT_DIRS.find(d=>d.v===contract.direction):null;
+  const pnlColor=dayState.dayPnl>0?C.green:dayState.dayPnl<0?C.red:C.muted;
+  return(<div style={{display:"flex",gap:14,alignItems:"center",overflowX:"auto",scrollbarWidth:"none",
+    background:C.panel,border:`1px solid ${C.border}`,borderLeft:`3px solid ${g.color}`,borderRadius:"8px",
+    padding:"7px 12px",marginBottom:14,fontFamily:mono,fontSize:"10px",letterSpacing:"0.04em"}}>
+    <span style={{color:g.color,fontWeight:700,whiteSpace:"nowrap"}}>◉ {g.v==="neg"?"NEG GEX":g.v==="pos"?"POS GEX":"AT FLIP"}</span>
+    {gex&&gex.flip?seg("FLIP",gex.flip):null}
+    {gex&&gex.putWall?seg("PW",gex.putWall,C.red):null}
+    {gex&&gex.callWall?seg("CW",gex.callWall,C.green):null}
+    {dirDef
+      ?seg("CONTRACT",`${dirDef.l.split(" — ")[0]} · ${dayState.dayEntries.length}/${dayState.maxTrades||"∞"}`,dirDef.color)
+      :seg("CONTRACT","NOT SEALED",C.amber)}
+    {seg("P&L",`${dayState.dayPnl<0?"-":""}$${Math.abs(Math.round(dayState.dayPnl)).toLocaleString()}`,pnlColor)}
+    <span style={{display:"inline-flex",gap:3,alignItems:"center",whiteSpace:"nowrap"}}>
+      <span style={{color:C.dim}}>BRK</span>
+      {[0,1].map(i=>(<span key={i} style={{width:7,height:7,borderRadius:"50%",
+        background:dayState.consecLosses>i?C.red:C.faint,border:`1px solid ${dayState.consecLosses>i?C.red:C.border}`}}/>))}
+    </span>
+  </div>);
+}
+
+/* ── The Contract — precommit form + sealed card ── */
+function ContractForm({settings,onSeal}){
+  const [c,setC]=useState(blankContract(settings));
+  const set=(k,v)=>setC(prev=>({...prev,[k]:v}));
+  const ready=c.declaration.trim().length>=8;
+  return(<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:"12px",padding:"18px",marginBottom:16,animation:"fadeUp 0.3s ease both"}}>
+    <div style={{fontFamily:mono,fontSize:"9px",color:C.amber,letterSpacing:"0.22em",marginBottom:4}}>◆ THE CONTRACT</div>
+    <div style={{fontFamily:sans,fontSize:"12px",color:C.muted,lineHeight:1.5,marginBottom:16}}>
+      Sixty seconds, before the open. Calm-you binds tilted-you. Once sealed, it cannot be edited until tomorrow.</div>
+    <div style={{fontFamily:mono,fontSize:"9px",color:C.slate,letterSpacing:"0.14em",marginBottom:8}}>TODAY I AM ONLY LOOKING FOR</div>
+    <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:16}}>
+      {CONTRACT_DIRS.map(d=>(<Pill key={d.v} color={d.color} active={c.direction===d.v} onClick={()=>set("direction",d.v)}>{d.l}</Pill>))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+      <Field label="MAX TRADES TODAY"><input value={c.maxTrades} onChange={e=>set("maxTrades",e.target.value.replace(/[^0-9]/g,""))} inputMode="numeric"
+        style={{width:"100%",background:C.panel2,border:`1px solid ${C.border}`,borderRadius:"8px",padding:"11px 12px",color:C.text,fontFamily:mono,fontSize:"14px"}}/></Field>
+      <Field label="MAX DAILY LOSS ($)"><input value={c.maxLoss} onChange={e=>set("maxLoss",e.target.value.replace(/[^0-9]/g,""))} inputMode="numeric"
+        style={{width:"100%",background:C.panel2,border:`1px solid ${C.border}`,borderRadius:"8px",padding:"11px 12px",color:C.text,fontFamily:mono,fontSize:"14px"}}/></Field>
+    </div>
+    <Field label="THE DECLARATION — TYPE IT. TYPING IT IS THE POINT." full>
+      <textarea value={c.declaration} onChange={e=>set("declaration",e.target.value)} rows={2}
+        placeholder={'e.g. "Shorts only into the put wall. Two trades max. Nothing at the flip."'}
+        style={{width:"100%",background:C.panel2,border:`1px solid ${C.border}`,borderRadius:"8px",padding:"11px 12px",color:C.text,fontFamily:sans,fontSize:"13px",lineHeight:1.5,resize:"vertical"}}/></Field>
+    <button onClick={()=>ready&&onSeal(c)} disabled={!ready}
+      style={{width:"100%",marginTop:14,padding:"15px",border:"none",borderRadius:"12px",cursor:ready?"pointer":"not-allowed",
+      background:ready?`linear-gradient(135deg, ${C.amber}, ${C.amber}CC)`:C.faint,color:ready?"#0A0A0A":C.dim,
+      fontFamily:mono,fontWeight:700,fontSize:"13px",letterSpacing:"0.1em",boxShadow:ready?`0 4px 20px ${C.amber}33`:"none"}}>
+      ◆ SEAL THE CONTRACT</button>
+    {!ready&&<div style={{fontFamily:mono,fontSize:"9px",color:C.dim,textAlign:"center",marginTop:8,letterSpacing:"0.06em"}}>THE DECLARATION IS REQUIRED — YOUR WORDS ARE THE CONTRACT</div>}
+  </div>);
+}
+function ContractCard({contract,dayState}){
+  const d=CONTRACT_DIRS.find(x=>x.v===contract.direction)||CONTRACT_DIRS[2];
+  const lossUsedPct=dayState.maxLoss>0?Math.min(100,Math.round(Math.max(0,-dayState.dayPnl)/dayState.maxLoss*100)):0;
+  return(<div style={{background:C.panel,border:`1px solid ${d.color}44`,borderLeft:`3px solid ${d.color}`,borderRadius:"12px",padding:"14px 16px",marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
+      <span style={{fontFamily:mono,fontSize:"9px",color:d.color,letterSpacing:"0.2em"}}>◆ CONTRACT — SEALED {fmtClock(contract.sealedAt)}</span>
+      <span style={{fontFamily:mono,fontSize:"10px",fontWeight:700,color:d.color,letterSpacing:"0.06em"}}>{d.l}</span></div>
+    <div style={{fontFamily:sans,fontSize:"13px",color:C.text,lineHeight:1.5,marginBottom:10,fontStyle:"italic"}}>&ldquo;{contract.declaration}&rdquo;</div>
+    <div style={{display:"flex",gap:16,fontFamily:mono,fontSize:"10px",flexWrap:"wrap"}}>
+      <span style={{color:C.muted}}>TRADES <b style={{color:dayState.dayEntries.length>=dayState.maxTrades&&dayState.maxTrades>0?C.red:C.textDim}}>{dayState.dayEntries.length}/{dayState.maxTrades||"∞"}</b></span>
+      <span style={{color:C.muted}}>LOSS BUDGET <b style={{color:lossUsedPct>=80?C.red:C.textDim}}>{lossUsedPct}% USED</b></span>
+      <span style={{color:C.muted}}>TAKE <b style={{color:C.textDim}}>{dayState.takes}</b> · PASS <b style={{color:C.green}}>{dayState.passes}</b></span>
+    </div></div>);
+}
+
+/* ── The Log — TAKE / PASS, one tap each ── */
+function DecisionStream({events}){
+  if(!events.length)return null;
+  const meta={DECISION_TAKE:{c:C.amber,l:"TAKE"},DECISION_PASS:{c:C.green,l:"PASS"},CONTRACT_SEALED:{c:C.blue,l:"SEALED"},
+    COOLDOWN_START:{c:C.red,l:"COOLDOWN"},WALL_TRIPPED:{c:C.red,l:"WALL"},WALL_OVERRIDE:{c:C.red,l:"OVERRIDE"}};
+  return(<div style={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:"12px",padding:"14px 16px",marginBottom:14}}>
+    <div style={{fontFamily:mono,fontSize:"9px",color:C.slate,letterSpacing:"0.2em",marginBottom:10}}>◆ TODAY&rsquo;S LEDGER</div>
+    <div style={{display:"flex",flexDirection:"column",gap:7}}>
+      {[...events].reverse().map((ev,i)=>{const m=meta[ev.type]||{c:C.muted,l:ev.type};
+        return(<div key={i} style={{display:"flex",gap:10,alignItems:"baseline",fontFamily:mono,fontSize:"11px"}}>
+          <span style={{color:C.dim,flexShrink:0}}>{fmtClock(ev.ts)}</span>
+          <span style={{color:m.c,fontWeight:700,minWidth:66,flexShrink:0,letterSpacing:"0.06em"}}>{m.l}</span>
+          <span style={{color:C.muted,fontFamily:sans,fontSize:"11px",lineHeight:1.4}}>{ev.note||""}</span></div>);})}
+    </div></div>);
+}
+function CommandView({contract,settings,dayState,gex,ledger,clock,onSeal,onTake,onPass,onTagPass}){
+  const [justPassed,setJustPassed]=useState(false);
+  const all=allTimeDecisionStats(ledger);
+  if(!contract||!contract.sealedAt){
+    return(<div style={{animation:"fadeUp 0.3s ease both"}}>
+      <ContractForm settings={settings} onSeal={onSeal}/>
+      {all.takes+all.passes>0&&<div style={{fontFamily:mono,fontSize:"10px",color:C.dim,textAlign:"center",letterSpacing:"0.06em"}}>
+        ALL-TIME · {all.takes} TAKES · <span style={{color:C.green}}>{all.passes} PASSES</span> — EVERY PASS IS RECORDED DISCIPLINE</div>}
+    </div>);
+  }
+  const now=clock.getTime();
+  const cooldownLeft=Math.max(0,dayState.cooldownUntil-now);
+  const noTradeDay=contract.direction==="none";
+  const limitReached=dayState.maxTrades>0&&dayState.dayEntries.length>=dayState.maxTrades;
+  const takeBlocked=noTradeDay||cooldownLeft>0||limitReached;
+  const blockLabel=noTradeDay?"NO-TRADE DAY — YOUR CONTRACT":cooldownLeft>0
+    ?`COOLDOWN — ${Math.floor(cooldownLeft/60000)}:${String(Math.floor((cooldownLeft%60000)/1000)).padStart(2,"0")} REMAINING`
+    :limitReached?"CONTRACT LIMIT REACHED":"";
+  return(<div style={{animation:"fadeUp 0.3s ease both"}}>
+    <ContractCard contract={contract} dayState={dayState}/>
+    {cooldownLeft>0&&(<div style={{background:`${C.red}0F`,border:`1px solid ${C.red}55`,borderRadius:"10px",padding:"12px 14px",marginBottom:14,textAlign:"center"}}>
+      <div style={{fontFamily:mono,fontSize:"11px",fontWeight:700,color:C.red,letterSpacing:"0.08em"}}>15-MINUTE BREAK · {Math.floor(cooldownLeft/60000)}:{String(Math.floor((cooldownLeft%60000)/1000)).padStart(2,"0")}</div>
+      <div style={{fontFamily:sans,fontSize:"11px",color:C.muted,marginTop:4}}>Ask: valid setup, or did I deviate?</div></div>)}
+    <div style={{display:"flex",gap:10,marginBottom:10}}>
+      <button onClick={()=>!takeBlocked&&onTake()} disabled={takeBlocked}
+        style={{flex:1,padding:"22px 10px",border:"none",borderRadius:"14px",cursor:takeBlocked?"not-allowed":"pointer",
+        background:takeBlocked?C.faint:`linear-gradient(135deg, ${C.amber}, ${C.amber}CC)`,color:takeBlocked?C.dim:"#0A0A0A",
+        fontFamily:mono,fontWeight:700,fontSize:"15px",letterSpacing:"0.1em",boxShadow:takeBlocked?"none":`0 4px 20px ${C.amber}33`}}>◆ TAKE</button>
+      <button onClick={()=>{onPass();setJustPassed(true);setTimeout(()=>setJustPassed(false),12000);}}
+        style={{flex:1,padding:"22px 10px",background:"transparent",border:`1px solid ${C.green}66`,borderRadius:"14px",
+        color:C.green,fontFamily:mono,fontWeight:700,fontSize:"15px",letterSpacing:"0.1em",cursor:"pointer"}}>◇ PASS</button>
+    </div>
+    {takeBlocked&&<div style={{fontFamily:mono,fontSize:"9px",color:C.red,textAlign:"center",letterSpacing:"0.1em",marginBottom:10}}>{blockLabel}</div>}
+    {justPassed&&(<div style={{marginBottom:14}}>
+      <div style={{fontFamily:mono,fontSize:"9px",color:C.dim,letterSpacing:"0.1em",marginBottom:6,textAlign:"center"}}>WHY? (ONE TAP · OPTIONAL)</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center"}}>
+        {PASS_REASONS.map(r=>(<Pill key={r} color={C.green} sm onClick={()=>{onTagPass(r);setJustPassed(false);}}>{r}</Pill>))}
+      </div></div>)}
+    <DecisionStream events={dayState.evs}/>
+    {dayState.evs.filter(e=>e.type.indexOf("DECISION")===0).length===0&&(
+      <div style={{textAlign:"center",padding:"36px 20px 24px"}}>
+        <div style={{fontFamily:mono,fontSize:"11px",color:C.muted,letterSpacing:"0.06em",lineHeight:2}}>
+          LIQUIDITY IS BUILDING.<br/>THE SWEEP IS COMING.<br/><span style={{color:C.amber}}>WAIT.</span></div></div>)}
+  </div>);
+}
+
+/* ── The Wall — the circuit breaker as an operating mode ── */
+function WallOverlay({contract,dayState,onOverride,onDebrief}){
+  const [arming,setArming]=useState(false);
+  const [typed,setTyped]=useState("");
+  const match=typed.trim()===OVERRIDE_SENTENCE;
+  return(<div style={{position:"fixed",inset:0,zIndex:100,background:"#0B0507F2",backdropFilter:"blur(10px)",
+    display:"flex",alignItems:"center",justifyContent:"center",padding:"24px"}}>
+    <div style={{maxWidth:440,width:"100%",background:C.panel,border:`1px solid ${C.red}66`,borderTop:`3px solid ${C.red}`,
+      borderRadius:"14px",padding:"24px 20px",textAlign:"center",animation:"fadeUp 0.3s ease both"}}>
+      <div style={{fontFamily:mono,fontSize:"10px",color:C.red,letterSpacing:"0.3em",marginBottom:14}}>■ THE WALL</div>
+      <div style={{fontFamily:sans,fontWeight:700,fontSize:"18px",color:"#F3F6FA",marginBottom:16,letterSpacing:"-0.01em"}}>Done for the day.</div>
+      <div style={{textAlign:"left",display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+        {dayState.reasons.map((r,i)=>(<div key={i} style={{display:"flex",gap:9,alignItems:"baseline",fontFamily:sans,fontSize:"12px",color:C.textDim,lineHeight:1.5}}>
+          <span style={{color:C.red,fontFamily:mono,flexShrink:0}}>▸</span>{r}</div>))}
+      </div>
+      {contract&&contract.sealedAt&&(<div style={{background:C.panel2,border:`1px solid ${C.border}`,borderRadius:"9px",padding:"11px 13px",marginBottom:16}}>
+        <div style={{fontFamily:mono,fontSize:"8px",color:C.dim,letterSpacing:"0.2em",marginBottom:5}}>YOUR CONTRACT, THIS MORNING</div>
+        <div style={{fontFamily:sans,fontSize:"12px",color:C.muted,fontStyle:"italic",lineHeight:1.5}}>&ldquo;{contract.declaration}&rdquo;</div></div>)}
+      <div style={{fontFamily:sans,fontSize:"11px",color:C.muted,lineHeight:1.6,marginBottom:18}}>
+        Your own rule: circuit breakers exist because you cannot trust yourself in that state yet.
+        The market reopens tomorrow. So does the Gate.</div>
+      <button onClick={onDebrief} style={{width:"100%",padding:"13px",background:`linear-gradient(135deg, ${C.amber}, ${C.amber}CC)`,
+        border:"none",borderRadius:"10px",color:"#0A0A0A",fontFamily:mono,fontWeight:700,fontSize:"12px",letterSpacing:"0.08em",cursor:"pointer",marginBottom:10}}>
+        ◈ OPEN TODAY&rsquo;S DEBRIEF</button>
+      {!arming?(
+        <button onClick={()=>setArming(true)} style={{background:"transparent",border:"none",color:C.dim,fontFamily:mono,
+          fontSize:"9px",letterSpacing:"0.1em",cursor:"pointer",padding:"6px"}}>OVERRIDE THE WALL…</button>
+      ):(<div style={{textAlign:"left"}}>
+        <div style={{fontFamily:mono,fontSize:"9px",color:C.red,letterSpacing:"0.08em",marginBottom:6,lineHeight:1.6}}>
+          TYPE, EXACTLY: &ldquo;{OVERRIDE_SENTENCE}&rdquo;<br/>THE OVERRIDE BECOMES A PERMANENT LEDGER EVENT.</div>
+        <input value={typed} onChange={e=>setTyped(e.target.value)} placeholder="Type the sentence…"
+          style={{width:"100%",background:C.panel2,border:`1px solid ${match?C.red:C.border}`,borderRadius:"8px",
+          padding:"11px 12px",color:C.text,fontFamily:sans,fontSize:"12px",marginBottom:8}}/>
+        <button onClick={()=>match&&onOverride()} disabled={!match}
+          style={{width:"100%",padding:"11px",background:match?C.red:C.faint,border:"none",borderRadius:"8px",
+          color:match?"#fff":C.dim,fontFamily:mono,fontWeight:700,fontSize:"11px",letterSpacing:"0.08em",cursor:match?"pointer":"not-allowed"}}>
+          BREAK MY OWN CIRCUIT BREAKER</button></div>)}
+    </div></div>);
+}
+
 /* ════ AI VISION — SCREENSHOT AUTO-READ ════
    Calls the Anthropic API directly from the browser using the user's own key
    (bring-your-own-key pattern, CORS-enabled via the direct-browser-access header).
@@ -1790,7 +2023,7 @@ function SettingsView({settings,onSave,onClose,onExport,onImport,onOpenImport}){
 
 /* ════ MAIN APP ════ */
 function StratOS(){
-  const [tab,setTab]=useState("home");       // home | watch | review | settings
+  const [tab,setTab]=useState("cmd");        // cmd | home | watch | gex | cal | review | settings
   const [view,setView]=useState("list");     // list | form  (within home)
   const [entries,setEntries]=useState([]);
   const [watch,setWatch]=useState([]);
@@ -1805,14 +2038,41 @@ function StratOS(){
   const [editingBriefingDate,setEditingBriefingDate]=useState(null);
   const [clock,setClock]=useState(new Date());
   const [toast,setToast]=useState("");
+  const [contracts,setContracts]=useState({});
+  const [ledger,setLedger]=useState([]);
 
   useEffect(()=>{const t=setInterval(()=>setClock(new Date()),1000);return()=>clearInterval(t);},[]);
-  useEffect(()=>{setEntries(loadEntries());setWatch(loadWatch());setGex(loadGex());setCalendar(loadCalendar());setDashboard(loadDashboard());setBriefings(loadBriefings());},[]);
+  useEffect(()=>{setEntries(loadEntries());setWatch(loadWatch());setGex(loadGex());setCalendar(loadCalendar());setDashboard(loadDashboard());setBriefings(loadBriefings());setContracts(loadContracts());setLedger(loadLedger());},[]);
   const flash=m=>{setToast(m);setTimeout(()=>setToast(""),2200);};
   const handleCalendar=arr=>{setCalendar(arr);saveCalendar(arr);};
   const handleDashboard=d=>{setDashboard(d);saveDashboard(d);};
   const openBriefing=(dateKey)=>{setEditingBriefingDate(dateKey);setView("briefing");setTab("home");};
   const handleSaveBriefing=(b)=>{const next={...briefings,[b.date]:b};setBriefings(next);saveBriefings(next);setView("list");setEditingBriefingDate(null);flash("Briefing saved");};
+
+  /* ── Command layer wiring ── */
+  const appendEvent=(ev)=>{setLedger(prev=>{const next=[...prev,{ts:Date.now(),...ev}];saveLedgerStore(next);return next;});};
+  const todayContract=contracts[todayKey()];
+  const dayState=computeDayState(entries,todayContract,ledger);
+  useEffect(()=>{
+    if(dayState.tripped&&!dayState.evs.some(e=>e.type==="WALL_TRIPPED")){
+      appendEvent({type:"WALL_TRIPPED",note:dayState.reasons[0]||""});
+    }
+  },[dayState.tripped]);
+  const sealContract=(c)=>{
+    const sealed={...c,sealedAt:Date.now()};
+    const next={...contracts,[c.date]:sealed};
+    setContracts(next);saveContracts(next);
+    const dirL=(CONTRACT_DIRS.find(d=>d.v===sealed.direction)||{}).l||sealed.direction;
+    appendEvent({type:"CONTRACT_SEALED",note:`${dirL} · max ${sealed.maxTrades||"∞"} trades · $${sealed.maxLoss} day stop`});
+    flash("Contract sealed — immutable until tomorrow");
+  };
+  const logTake=()=>{appendEvent({type:"DECISION_TAKE",note:"Gate confirmed — trade form opened"});startNew();};
+  const logPass=()=>{appendEvent({type:"DECISION_PASS",note:""});flash("Pass logged — discipline recorded");};
+  const tagLastPass=(reason)=>{setLedger(prev=>{
+    const next=[...prev];
+    for(let i=next.length-1;i>=0;i--){if(next[i].type==="DECISION_PASS"){next[i]={...next[i],note:reason};break;}}
+    saveLedgerStore(next);return next;});};
+  const overrideWall=()=>{appendEvent({type:"WALL_OVERRIDE",note:OVERRIDE_SENTENCE});flash("Override logged to your permanent record");};
 
   const startNew=(dateKey)=>{
     const target=dateKey||todayKey();
@@ -1834,7 +2094,14 @@ function StratOS(){
     setEditing(seed);setIsEdit(false);setView("form");setTab("home");
   };
   const openEntry=e=>{setEditing(e);setIsEdit(true);setView("form");setTab("home");};
-  const handleSave=e=>{const arr=[e,...entries.filter(x=>x.id!==e.id)].sort((a,b)=>b.id-a.id);setEntries(arr);saveEntries(arr);setView("list");setEditing(null);flash("Saved to journal");};
+  const handleSave=e=>{
+    const prev=entries.find(x=>x.id===e.id);
+    const arr=[e,...entries.filter(x=>x.id!==e.id)].sort((a,b)=>b.id-a.id);
+    setEntries(arr);saveEntries(arr);setView("list");setEditing(null);flash("Saved to journal");
+    if(e.outcome==="loss"&&dateKeyOf(e.id)===todayKey()&&(!prev||prev.outcome!=="loss")){
+      appendEvent({type:"COOLDOWN_START",note:"Loss logged — 15-minute break. Valid setup, or deviation?"});
+    }
+  };
   const handleDelete=id=>{const arr=entries.filter(e=>e.id!==id);setEntries(arr);saveEntries(arr);};
   const handleWatch=arr=>{setWatch(arr);saveWatch(arr);};
   const handleSettings=s=>{setSettings(s);saveSettings(s);setTab("home");flash("Settings saved");};
@@ -1844,7 +2111,7 @@ function StratOS(){
     setEntries(arr);saveEntries(arr);setTab("home");setView("list");
     flash(`Imported ${newEntries.length} trade${newEntries.length!==1?"s":""}`);
   };
-  const handleExport=()=>{const data={entries,watch,settings,calendar,dashboard,briefings,exported:Date.now()};
+  const handleExport=()=>{const data={entries,watch,settings,calendar,dashboard,briefings,ledger,contracts,exported:Date.now()};
     const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);const a=document.createElement("a");
     a.href=url;a.download=`stratos-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);flash("Journal exported");};
@@ -1855,12 +2122,14 @@ function StratOS(){
     if(d.calendar){setCalendar(d.calendar);saveCalendar(d.calendar);}
     if(d.dashboard){setDashboard(d.dashboard);saveDashboard(d.dashboard);}
     if(d.briefings){setBriefings(d.briefings);saveBriefings(d.briefings);}
+    if(d.ledger){setLedger(d.ledger);saveLedgerStore(d.ledger);}
+    if(d.contracts){setContracts(d.contracts);saveContracts(d.contracts);}
     flash("Journal imported");}catch(_){flash("Import failed — invalid file");}};
 
   const filtered=filter==="ALL"?entries:entries.filter(e=>e.instrument===filter);
   const firedCount=watch.filter(w=>w.fired).length;
 
-  const TABS=[{id:"home",label:"Journal",icon:"◧"},{id:"watch",label:"Watch",icon:"◉"},{id:"gex",label:"GEX",icon:"◢"},{id:"cal",label:"Cal",icon:"▤"},{id:"review",label:"Review",icon:"◈"},{id:"settings",label:"More",icon:"⚙"}];
+  const TABS=[{id:"cmd",label:"Command",icon:"◆"},{id:"home",label:"Journal",icon:"◧"},{id:"watch",label:"Watch",icon:"◉"},{id:"gex",label:"GEX",icon:"◢"},{id:"cal",label:"Cal",icon:"▤"},{id:"review",label:"Review",icon:"◈"},{id:"settings",label:"More",icon:"⚙"}];
 
   return(<div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:sans,maxWidth:760,margin:"0 auto",
     padding:"max(16px, env(safe-area-inset-top)) 14px calc(80px + env(safe-area-inset-bottom))"}}>
@@ -1869,13 +2138,21 @@ function StratOS(){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:18}}>
       <div><div style={{fontFamily:mono,fontSize:"9px",color:C.amber,letterSpacing:"0.22em",marginBottom:5}}>◈ STRAT OS</div>
         <h1 style={{fontFamily:sans,fontWeight:700,fontSize:"21px",color:"#F3F6FA",letterSpacing:"-0.02em",lineHeight:1}}>
-          {view==="form"?(isEdit?"Edit Trade":"New Trade"):view==="briefing"?"Daily Briefing":view==="import"?"Import Trades":tab==="watch"?"Watchlist":tab==="gex"?"Today's GEX":tab==="cal"?"Economic Calendar":tab==="review"?"Weekly Review":tab==="settings"?"Settings":"Trading Platform"}</h1></div>
+          {view==="form"?(isEdit?"Edit Trade":"New Trade"):view==="briefing"?"Daily Briefing":view==="import"?"Import Trades":tab==="cmd"?"Command Deck":tab==="watch"?"Watchlist":tab==="gex"?"Today's GEX":tab==="cal"?"Economic Calendar":tab==="review"?"Weekly Review":tab==="settings"?"Settings":"Trading Platform"}</h1></div>
       <div style={{textAlign:"right"}}>
         <div style={{fontFamily:mono,fontSize:"15px",color:C.muted}}>{clock.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
         <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-end",marginTop:3}}>
           <span style={{width:5,height:5,borderRadius:"50%",background:C.green,animation:"pulse 2s infinite"}}/>
           <span style={{fontFamily:mono,fontSize:"9px",color:`${C.green}55`}}>OFFLINE-READY</span></div></div>
     </div>
+
+    {/* REGIME RIBBON — ambient context on every main screen */}
+    {view==="list"&&<RegimeRibbon gex={gex} contract={todayContract} dayState={dayState}/>}
+
+    {/* COMMAND — Contract · TAKE/PASS · Ledger */}
+    {tab==="cmd"&&view==="list"&&(
+      <CommandView contract={todayContract} settings={settings} dayState={dayState} gex={gex}
+        ledger={ledger} clock={clock} onSeal={sealContract} onTake={logTake} onPass={logPass} onTagPass={tagLastPass}/>)}
 
     {/* HOME */}
     {tab==="home"&&view==="list"&&(<div style={{animation:"fadeUp 0.3s ease both"}}>
@@ -1929,6 +2206,11 @@ function StratOS(){
     {/* SETTINGS */}
     {tab==="settings"&&view!=="import"&&<SettingsView settings={settings} onSave={handleSettings} onClose={()=>setTab("home")} onExport={handleExport} onImport={handleImport} onOpenImport={()=>setView("import")}/>}
 
+    {/* THE WALL — circuit breaker as an operating mode */}
+    {dayState.tripped&&view!=="briefing"&&(
+      <WallOverlay contract={todayContract} dayState={dayState}
+        onOverride={overrideWall} onDebrief={()=>openBriefing(todayKey())}/>)}
+
     {/* Toast */}
     {toast&&(<div style={{position:"fixed",bottom:"calc(90px + env(safe-area-inset-bottom))",left:"50%",transform:"translateX(-50%)",
       background:C.panel2,border:`1px solid ${C.amber}55`,color:C.amber,fontFamily:mono,fontSize:"12px",padding:"10px 18px",
@@ -1939,7 +2221,7 @@ function StratOS(){
       background:`${C.panel}F2`,borderTop:`1px solid ${C.border}`,backdropFilter:"blur(12px)",
       padding:"8px 12px calc(8px + env(safe-area-inset-bottom))",display:"flex",justifyContent:"space-around",maxWidth:760,margin:"0 auto"}}>
       {TABS.map(t=>(<button key={t.id} onClick={()=>{setTab(t.id);setView("list");}} style={{background:"transparent",border:"none",cursor:"pointer",
-        display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 14px",position:"relative"}}>
+        display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 7px",position:"relative"}}>
         <span style={{fontSize:"18px",color:tab===t.id?C.amber:C.dim,lineHeight:1}}>{t.icon}</span>
         <span style={{fontFamily:mono,fontSize:"9px",letterSpacing:"0.04em",color:tab===t.id?C.amber:C.dim}}>{t.label}</span>
         {t.id==="watch"&&firedCount>0&&(<span style={{position:"absolute",top:0,right:6,width:14,height:14,borderRadius:"50%",
