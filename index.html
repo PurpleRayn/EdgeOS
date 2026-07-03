@@ -93,8 +93,9 @@ const GATE_STAGES=[
    opts:["Order Block","FVG"]},
   {k:"strat",n:"04",title:"STRAT PATTERN · 15M",sub:"2-2 Reversal preferred, forming live",auto:false,needPrice:false,
    opts:["2-2 Reversal","2-1-2","3-1-2","Other Strat"]},
-  {k:"tdo",n:"05",title:"TRUE OPEN GAUGE",sub:"Above the opens = premium → shorts · below = discount → longs",auto:true,needPrice:true,opts:[]},
-  {k:"rr",n:"06",title:"TARGET · OPPOSING LIQ",sub:"Entry, stop, target — 1:2 minimum toward opposing liquidity",auto:true,needPrice:false,opts:[]},
+  {k:"tfc",n:"05",title:"FTFC — HIGHEST TIMEFRAME DOWN",sub:"Q / M / W / D / 4H candle direction — your sub-1H entry must find alignment above",auto:false,needPrice:false,opts:[]},
+  {k:"tdo",n:"06",title:"TRUE OPEN BREAK",sub:"Price breaks THROUGH a true open in your direction — the trigger",auto:true,needPrice:true,opts:[]},
+  {k:"rr",n:"07",title:"TARGET · OPPOSING LIQ",sub:"Entry, stop, target — 1:2 minimum toward opposing liquidity",auto:true,needPrice:false,opts:[]},
 ];
 
 /* ════ STORAGE — append-only ledger + settings ════ */
@@ -173,12 +174,17 @@ function dayStateOf(ledger,settings){
   const mk=lastOf(evs,"MARK_SET");
   const mark=mk?mk.data.price:(brief&&brief.spot)||"";
   const pd=brief?pdGauge(mark,brief.tdo,brief.two):null;
+  const nyoEv=lastOf(evs,"NYO_SET");
+  const opens=brief?{tmo:brief.tmo,two:brief.two,tdo:brief.tdo,nyo:nyoEv?nyoEv.data.price:""}:null;
+  const stack=opens?pdStackOf(mark,opens):null;
+  const qt=qtOf(Date.now());
+  const verdict=brief?verdictOf(stack,qt,brief.regime):null;
   const levels=levelsOf(evs);
   const econToday=econAllOf(ledger).filter(x=>x.dateKey===key);
   const nextNews=newsStateOf(econToday,Date.now());
   return{key,evs,brief,trades,dayPnl,consec,takes,passes,cooldownUntil,overridden,debriefed,
     reasons,tripped:reasons.length>0&&!overridden,lockReviewNeeded,
-    mark,pd,levels,econToday,nextNews,
+    mark,pd,levels,econToday,nextNews,opens,stack,qt,verdict,
     gate:openGateOf(evs),openTrade:openTradeOf(evs)};
 }
 
@@ -195,18 +201,35 @@ function qualityOf(brief,gate,dir,ctx){
   if(!brief)return{q:0,why:["No brief sealed"]};
   ctx=ctx||{};
   const armed=gate?Object.keys(gate.stages).length:0;
-  let q=armed;const why=[`${armed}/6 stages armed`];
+  let q=armed;const why=[`${armed}/7 stages armed`];
   const rg=brief.regime;
-  if(rg==="neg"){q+=2;why.push("SPY negative GEX — fuel (+2)");}
+  if(rg==="neg"){q+=1;why.push("SPY negative GEX — fuel (+1)");}
   else if(rg==="flip"){q-=2;why.push("SPY at the flip — unstable (\u22122)");}
   else why.push("SPY positive GEX — context only (+0)");
-  if(brief.fourHClear){q+=1;why.push("4H structure clear (+1)");}else why.push("4H choppy (observation flag)");
-  if(brief.weeklyAligned){q+=1;why.push("Weekly aligned (+1)");}
+  /* THE STACK — location, macro-weighted */
+  if(ctx.stack&&dir){
+    const want=dir==="short"?"premium":"discount";
+    if(ctx.stack.full&&ctx.stack.composite===want){q+=2;why.push(`FULL STACK ${want.toUpperCase()} — all four opens agree (+2)`);}
+    else if(ctx.stack.macroSide===want){q+=1;why.push(`Macro stack (TMO/TWO) in ${want} — location holds (+1)`);}
+    else if(ctx.stack.macroSide&&ctx.stack.macroSide!=="mixed"){q-=3;why.push(`FIGHTING THE MACRO STACK — TMO/TWO say ${ctx.stack.macroSide==="premium"?"shorts":"longs"} (\u22123)`);}
+    else{q-=1;why.push("Mixed stack — no clean location (\u22121)");}
+  }else if(dir)why.push("No opens set — location unknown");
+  /* FTFC — Rob Smith, Q/M/W/D/4H alignment tier */
+  if(ctx.tfc&&dir){
+    const al=alignmentOf(ctx.tfc,dir);
+    if(al&&al.tier==="ELITE"){q+=2;why.push("FTFC ELITE — Q/M/W/D/4H all with the trade (+2)");}
+    else if(al&&al.tier==="HIGH"){q+=1;why.push(`FTFC HIGH — ${al.withT}/5 timeframes with you (+1)`);}
+    else if(al&&al.tier==="MODERATE")why.push(`FTFC MODERATE — ${al.withT}/5 with, ${al.against} against, ${al.inside} coiled (+0)`);
+    else if(al&&al.tier==="LOW"){q-=3;why.push(`FTFC LOW — only ${al.withT}/5 with the trade. Continuity is not there (\u22123)`);}
+  }
+  /* QUARTERLY THEORY — time-of-trade probability */
+  if(ctx.qt){
+    if(ctx.qt.bias>0){q+=1;why.push(`${ctx.qt.window} window — distribution time (+1)`);}
+    else if(ctx.qt.bias<0){q-=1;why.push(`${ctx.qt.window} window — dead time (\u22121)`);}
+    else why.push(`${ctx.qt.window} window — ${ctx.qt.role.toLowerCase()} (+0)`);
+  }
+  if(brief.fourHClear===false)why.push("4H choppy — observation flag");
   if(dir&&brief.direction!=="either"&&brief.direction!=="none"&&dir!==brief.direction){q-=3;why.push("Fights your declaration (\u22123)");}
-  if(ctx.pd&&ctx.pd.dirBias){
-    if(dir===ctx.pd.dirBias){q+=1;why.push(`${ctx.pd.label} — ${dir.toUpperCase()} aligned with the gauge (+1)`);}
-    else if(dir){q-=2;why.push(`Fighting the true-open gauge — ${ctx.pd.label} hunts ${ctx.pd.dirBias.toUpperCase()}S (\u22122)`);}
-  }else if(ctx.pd)why.push("Straddling the opens — gauge neutral");
   if(ctx.newsSoon){q-=2;why.push("High-impact news window (\u22122)");}
   q=Math.max(0,Math.min(10,q));
   return{q,why};
@@ -242,6 +265,102 @@ function pdGauge(mark,tdo,two){
   else if(downs&&!ups){zone="discount";dirBias="long";label=downs===2?"DEEP DISCOUNT":"DISCOUNT";}
   else{zone="straddle";dirBias=null;label="STRADDLING THE OPENS";}
   return{mark:m,tdo:td||null,two:tw||null,zone,dirBias,label};
+}
+
+/* ════ THE OPEN STACK — TMO → TWO → TDO → NYO ════
+   Four true opens, one doctrine: above = premium (hunt shorts), below =
+   discount (hunt longs). TMO/TWO are MACRO — structure, where the month and
+   week say value sits. TDO/NYO are MICRO — today's timing. Location comes
+   from the macro pair; the trigger fires through the micro pair.            */
+const OPEN_DEFS=[
+  {k:"tmo",l:"TRUE MONTH OPEN",short:"TMO",scope:"MACRO"},
+  {k:"two",l:"TRUE WEEK OPEN",short:"TWO",scope:"MACRO"},
+  {k:"tdo",l:"TRUE DAY OPEN",short:"TDO",scope:"MICRO"},
+  {k:"nyo",l:"NY OPEN · 9:30",short:"NYO",scope:"MICRO"}];
+function pdStackOf(mark,opens){
+  const m=parseFloat(mark);if(!m||!opens)return null;
+  const rows=OPEN_DEFS.map(d=>{const v=parseFloat(opens[d.k]);
+    return isNaN(v)?null:{...d,value:v,side:m>v?"premium":m<v?"discount":"at"};}).filter(Boolean);
+  if(!rows.length)return null;
+  const sideOf=g=>!g.length?null:g.every(r=>r.side==="premium")?"premium":g.every(r=>r.side==="discount")?"discount":"mixed";
+  const macroSide=sideOf(rows.filter(r=>r.scope==="MACRO"));
+  const microSide=sideOf(rows.filter(r=>r.scope==="MICRO"));
+  const full=rows.length>=3&&(rows.every(r=>r.side==="premium")||rows.every(r=>r.side==="discount"));
+  const composite=full?rows[0].side:(macroSide&&macroSide!=="mixed")?macroSide:"mixed";
+  const dirBias=composite==="premium"?"short":composite==="discount"?"long":null;
+  const label=full?`FULL STACK ${composite.toUpperCase()}`
+    :(macroSide&&macroSide!=="mixed")?`MACRO ${macroSide.toUpperCase()}${microSide&&microSide!=="mixed"&&microSide!==macroSide?" · MICRO "+microSide.toUpperCase():""}`
+    :"MIXED STACK";
+  return{mark:m,rows,macroSide,microSide,full,composite,dirBias,label};
+}
+
+/* ════ FTFC ALIGNMENT — Rob Smith, highest timeframe down ════
+   The Strat: continuity means the higher-timeframe candles trade WITH you —
+   Q, M, W, D, 4H all going your way before a sub-1H entry. This is the BIAS
+   engine (calendar candles). The true-open stack is the LOCATION engine
+   (Q2 opens). Direction from continuity; entry zone from premium/discount.  */
+const TFC_FRAMES=[{k:"q",l:"3M · QUARTERLY"},{k:"m",l:"MONTHLY"},{k:"w",l:"WEEKLY"},{k:"d",l:"DAILY"},{k:"h4",l:"4 HOUR"}];
+function alignmentOf(tfc,dir){
+  if(!tfc||!dir)return null;
+  const w=dir==="long"?"2u":"2d",vs=dir==="long"?"2d":"2u";
+  let withT=0,against=0,inside=0,set=0;
+  TFC_FRAMES.forEach(f=>{const v=tfc[f.k];if(!v)return;set++;
+    if(v===w)withT++;else if(v===vs)against++;else inside++;});
+  if(set<TFC_FRAMES.length)return{withT,against,inside,set,tier:"INCOMPLETE"};
+  const tier=withT===5?"ELITE":withT===4?"HIGH":withT===3?"MODERATE":"LOW";
+  return{withT,against,inside,set,tier};
+}
+
+/* ════ QUARTERLY THEORY — time is a quarter machine ════
+   Day quarters (ET): Q1 Asia 18–00 accumulation · Q2 London 00–06
+   manipulation · Q3 NY 06–12 distribution · Q4 PM 12–18 continuation.
+   Each quarter subdivides into 90-minute A/M/D/X cycles. The sweep belongs
+   to manipulation time; the entry belongs to distribution time.             */
+function qtOf(now){
+  const d=new Date(now);const h=d.getHours()+d.getMinutes()/60;
+  let quarter,role,qStart;
+  if(h>=18){quarter="Q1 · ASIA";role="ACCUMULATION";qStart=18;}
+  else if(h<6){quarter="Q2 · LONDON";role="MANIPULATION";qStart=0;}
+  else if(h<12){quarter="Q3 · NEW YORK";role="DISTRIBUTION";qStart=6;}
+  else{quarter="Q4 · PM";role="CONTINUATION / REVERSAL";qStart=12;}
+  const mIx=Math.min(3,Math.floor((h-qStart)*60/90));
+  const micro=["90M-1 ACCUMULATE","90M-2 MANIPULATE","90M-3 DISTRIBUTE","90M-4 CONTINUE"][mIx];
+  let window,bias,note;
+  if(h>=9.5&&h<11.5){window="PRIME";bias=1;note="NY distribution — your window. Triggers count here.";}
+  else if(h>=6&&h<9.5){window="SWEEP";bias=0;note="Judas window — expect the run on liquidity. Stalk it, don't chase it.";}
+  else if(h>=11.5&&h<13.5){window="CHOP";bias=-1;note="Lunch — liquidity thins, moves fail. Nothing is owed to you here.";}
+  else if(h>=13.5&&h<15.75){window="PM DRIVE";bias=0;note="Second distribution — valid, but faster and thinner.";}
+  else{window="OFF";bias=-1;note="Outside your session. The A+ trade is asleep.";}
+  return{quarter,role,micro,window,bias,note};
+}
+
+/* ════ THE VERDICT — the anti-forcing surface ════ */
+function verdictOf(stack,qt,regime){
+  if(!stack)return{code:"SET",label:"SET THE OPENS",color:C.muted,
+    note:"TMO · TWO · TDO · NYO anchor everything. No opens, no gauge, no hunt."};
+  if(!stack.dirBias)return{code:"STAND_DOWN",label:"STAND DOWN — MIXED STACK",color:C.loss,
+    note:"The opens disagree. No clean location. If it is not clear, it is not there."};
+  if(qt.window==="OFF"||qt.window==="CHOP")return{code:"STAND_DOWN",label:"STAND DOWN — DEAD TIME",color:C.loss,note:qt.note};
+  const hunt=stack.dirBias==="short"?"SHORTS":"LONGS";
+  if(stack.full&&qt.window==="PRIME"&&regime==="neg")
+    return{code:"APLUS",label:`A+ WINDOW — HUNT ${hunt}`,color:C.win,
+      note:"Full stack, prime distribution, negative gamma fuel. This is the confluence you wait for."};
+  if(qt.window==="SWEEP")return{code:"STALK",label:`STALK ${hunt} — SWEEP WINDOW`,color:C.bolt,
+    note:"Manipulation hour. Let them run the stops. Your trigger comes after the sweep, not during it."};
+  return{code:"HUNT",label:`HUNT ${hunt}`,color:C.powderHi,note:qt.note};
+}
+
+/* prefill: the month's TMO and the week's TWO carry across briefs */
+function lastOpensPrefill(ledger){
+  const mo=todayKey().slice(0,7),wk=weekBoundsOf(0).weekKey;
+  let tmo="",two="";
+  for(let i=ledger.length-1;i>=0;i--){const e=ledger[i];
+    if(e.type!=="BRIEF_SEALED")continue;
+    const k=dateKeyOf(e.ts);
+    if(!tmo&&e.data.tmo&&k.slice(0,7)===mo)tmo=e.data.tmo;
+    if(!two&&e.data.two&&k>=wk)two=e.data.two;
+    if(tmo&&two)break;}
+  return{tmo,two};
 }
 
 /* ════ KEY LEVELS — the daily board conclusions are drawn from ════ */
@@ -516,6 +635,25 @@ function insightsOf(ledger,settings){
       out.push({conf:conf(Math.min(hi.length,lo.length)),n:trades.length,color:C.powderHi,
         text:`Gate-honest trades (Q≥${settings.qualityFloor}) win ${wr(hi)}%; sub-floor trades win ${wr(lo)}%. The floor is the edge.`});
   }
+  if(trades.length>=5){
+    const base=wr(trades);
+    const fs=trades.filter(t=>t.fullStack===true),nf=trades.filter(t=>t.fullStack===false);
+    if(fs.length>=5&&nf.length>=3&&wr(fs)-wr(nf)>=10)
+      out.push({conf:conf(fs.length),n:fs.length,color:C.win,
+        text:`Full-stack entries win ${wr(fs)}% vs ${wr(nf)}% when the opens disagree. The stack is the filter.`});
+    const wins={};trades.forEach(t=>{if(t.window)(wins[t.window]=wins[t.window]||[]).push(t);});
+    Object.entries(wins).forEach(([w,g])=>{if(g.length>=5&&wr(g)<=base-12)
+      out.push({conf:conf(g.length),n:g.length,color:C.warn,
+        text:`${w}-window entries win ${wr(g)}% vs ${base}% baseline — the clock is telling you something.`});});
+    const el=trades.filter(t=>t.alignTier==="ELITE"||t.alignTier==="HIGH");
+    const lo2=trades.filter(t=>t.alignTier==="MODERATE"||t.alignTier==="LOW");
+    if(el.length>=5&&lo2.length>=3&&wr(el)-wr(lo2)>=10)
+      out.push({conf:conf(el.length),n:el.length,color:C.win,
+        text:`ELITE/HIGH continuity entries win ${wr(el)}% vs ${wr(lo2)}% on partial alignment. The HTF ladder is the probability.`});
+    const forced=ledger.filter(e=>e.type==="GATE_FORCED").length;
+    if(forced>=3)out.push({conf:conf(forced),n:forced,color:C.loss,
+      text:`${forced} gates opened against a STAND DOWN verdict. Every one is on the record.`});
+  }
   const passes=ledger.filter(e=>e.type==="DECISION"&&e.data.action==="PASS").length;
   if(passes>=5)out.push({conf:conf(passes),n:passes,color:C.win,
     text:`${passes} recorded passes — ${money(passes*settings.riskPerTrade)} of capital deliberately kept off the table.`});
@@ -594,11 +732,15 @@ function Ribbon({ds,mode}){
     border:`1px solid ${C.border}`,borderLeft:`3px solid ${rg.color}`,borderRadius:10,
     padding:"8px 13px",marginBottom:14,fontFamily:mono,fontSize:10,letterSpacing:"0.05em"}}>
     <span style={{color:rg.color,fontWeight:700,whiteSpace:"nowrap",textShadow:`0 0 12px ${rg.color}66`}}>◉ {brief?"SPY "+rg.short:"NO BRIEF"}</span>
-    {ds.pd&&ds.pd.dirBias?seg(ds.pd.zone==="premium"?"PREM ▲":"DISC ▼",
-      ds.pd.dirBias==="short"?"HUNT SHORTS":"HUNT LONGS",
-      ds.pd.dirBias==="short"?C.loss:C.win):ds.pd?seg("OPENS","STRADDLED",C.bolt):null}
-    {brief&&brief.tdo?seg("TDO",brief.tdo,C.ice):null}
+    {ds.stack&&ds.stack.dirBias?seg(ds.stack.full?"STACK ◆":"MACRO",
+      ds.stack.dirBias==="short"?"HUNT SHORTS":"HUNT LONGS",
+      ds.stack.dirBias==="short"?C.loss:C.win):ds.stack?seg("STACK","MIXED",C.bolt):null}
+    {ds.qt?seg("QT",`${ds.qt.quarter.split(" · ")[0]} ${ds.qt.window}`,
+      ds.qt.window==="PRIME"?C.win:ds.qt.window==="SWEEP"?C.bolt:C.loss):null}
+    {brief&&brief.tmo?seg("TMO",brief.tmo,C.boltHi):null}
     {brief&&brief.two?seg("TWO",brief.two,C.ice):null}
+    {brief&&brief.tdo?seg("TDO",brief.tdo,C.ice):null}
+    {ds.opens&&ds.opens.nyo?seg("NYO",ds.opens.nyo,C.ice):null}
     {brief&&brief.spyFlip?seg("SPY FLIP",brief.spyFlip):null}
     {brief&&brief.spyPut?seg("SPY PW",brief.spyPut,C.loss):null}
     {brief&&brief.spyCall?seg("SPY CW",brief.spyCall,C.win):null}
@@ -617,8 +759,9 @@ function Ribbon({ds,mode}){
 }
 
 /* ════ MODE 1 · BRIEF — the 90-second morning ════ */
-function BriefMode({settings,onSeal}){
-  const [b,setB]=useState({regime:"neg",spyFlip:"",spyCall:"",spyPut:"",spySpot:"",spot:"",tdo:"",two:"",
+function BriefMode({settings,prefill,onSeal}){
+  const [b,setB]=useState({regime:"neg",spyFlip:"",spyCall:"",spyPut:"",spySpot:"",spot:"",
+    tmo:(prefill&&prefill.tmo)||"",tdo:"",two:(prefill&&prefill.two)||"",
     fourHClear:null,weeklyAligned:null,direction:"either",maxTrades:String(settings.maxTrades),
     maxLoss:String(settings.maxDailyLoss),declaration:""});
   const set=(k,v)=>setB(p=>({...p,[k]:v}));
@@ -648,13 +791,18 @@ function BriefMode({settings,onSeal}){
         <Field label="SPY SPOT"><Input numeric value={b.spySpot} onChange={v=>set("spySpot",v)} placeholder="685"/></Field>
       </div>
       <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:16}}>
-        <Field label="TRUE DAY OPEN · NQ"><Input numeric value={b.tdo} onChange={v=>set("tdo",v)} placeholder="TDO"/></Field>
-        <Field label="TRUE WEEK OPEN · NQ"><Input numeric value={b.two} onChange={v=>set("two",v)} placeholder="TWO"/></Field>
+        <Field label="TRUE MONTH OPEN · MACRO"><Input numeric value={b.tmo} onChange={v=>set("tmo",v)} placeholder="TMO"/></Field>
+        <Field label="TRUE WEEK OPEN · MACRO"><Input numeric value={b.two} onChange={v=>set("two",v)} placeholder="TWO"/></Field>
+        <Field label="TRUE DAY OPEN · MICRO"><Input numeric value={b.tdo} onChange={v=>set("tdo",v)} placeholder="TDO"/></Field>
         <Field label="NQ MARK"><Input numeric value={b.spot} onChange={v=>set("spot",v)} placeholder="current"/></Field>
       </div>
+      <div style={{fontFamily:mono,fontSize:8.5,color:C.dim,letterSpacing:"0.06em",marginBottom:12,lineHeight:1.6}}>
+        {prefill&&(prefill.tmo||prefill.two)?"TMO / TWO CARRIED FROM THIS MONTH'S / WEEK'S EARLIER BRIEF — EDIT IF THE CANDLE ROLLED. ":""}
+        NY OPEN (9:30) IS STAMPED INTRADAY FROM THE LEVELS BOARD.</div>
       <div style={{fontFamily:mono,fontSize:9,color:C.ice,letterSpacing:"0.08em",lineHeight:1.7,marginBottom:12,
         border:`1px solid ${C.border}`,background:C.faint,borderRadius:9,padding:"9px 12px"}}>
-        THE TRUE OPENS ARE YOUR GAUGE — ABOVE THEM = PREMIUM → HUNT SHORTS · BELOW THEM = DISCOUNT → HUNT LONGS
+        THE TRUE OPENS ARE YOUR ENTRY-LOCATION GAUGE — ABOVE = PREMIUM → SHORT ENTRIES · BELOW = DISCOUNT → LONG ENTRIES.
+        QT CANONICAL STAMPS: TMO = 2ND MONDAY OPEN · TWO = MON 18:00 ET · TDO = MIDNIGHT ET · NY SESSION TRUE OPEN = 7:30 (YOUR 9:30 BELL WORKS — BE CONSISTENT)
         {(()=>{const g=pdGauge(b.spot,b.tdo,b.two);return g&&g.dirBias?(
           <div style={{marginTop:6,color:g.dirBias==="short"?C.loss:C.win,fontWeight:700}}>
             NOW: {g.label} — {g.dirBias==="short"?"SHORTS":"LONGS"} FAVORED</div>):null;})()}
@@ -732,26 +880,29 @@ function HuntMode({ds,settings,clock,onOpenGate,onArm,onArmPlan,onDecide,onEndSe
   const watchOnly=brief.direction==="none"||brief.fourHClear===false;
   const limitReached=brief.maxTrades>0&&ds.trades.length>=brief.maxTrades;
   const armedCount=gate?Object.keys(gate.stages).length:0;
-  const entryPd=pdGauge(plan.entry||ds.mark,brief.tdo,brief.two);
-  const {q,why}=qualityOf(brief,gate,plan.dir,{pd:entryPd||ds.pd,newsSoon:!!ds.nextNews});
+  const entryStack=pdStackOf(plan.entry||ds.mark,ds.opens)||ds.stack;
+  const tfcVals=gate&&gate.stages.tfc?gate.stages.tfc.tfc:null;
+  const {q,why}=qualityOf(brief,gate,plan.dir,{stack:entryStack,tfc:tfcVals,qt:ds.qt,newsSoon:!!ds.nextNews});
   const rr=rrOf(plan.entry,plan.stop,plan.target);
   const sz=sizerOf(plan.entry,plan.stop,settings.riskPerTrade,settings.ptValue);
-  const stage5=gate&&gate.stages.tdo,stage6=gate&&gate.stages.rr;
-  const fullArm=armedCount>=6;
+  const stageTfc=gate&&gate.stages.tfc,stageBrk=gate&&gate.stages.tdo,stagePlan=gate&&gate.stages.rr;
+  const fullArm=armedCount>=7;
   const unlocked=fullArm&&q>=settings.qualityFloor&&!watchOnly&&cooldownLeft<=0&&!limitReached;
   const wallWarn=(()=>{
-    if(entryPd&&entryPd.dirBias&&entryPd.dirBias!==plan.dir)
-      return`Entry ${plan.entry||ds.mark} sits in ${entryPd.label} — the gauge hunts ${entryPd.dirBias.toUpperCase()}S here. Above the opens you short, below them you long.`;
+    if(entryStack&&entryStack.macroSide&&entryStack.macroSide!=="mixed"){
+      const want=plan.dir==="short"?"premium":"discount";
+      if(entryStack.macroSide!==want)
+        return`Entry fights the MACRO stack — TMO/TWO sit in ${entryStack.macroSide.toUpperCase()}, which hunts ${entryStack.macroSide==="premium"?"SHORTS":"LONGS"}. The month and week outrank the minute.`;}
     if(brief.regime==="pos")return`Positive SPY GEX — dealers dampen. Moves fade; treat the true open as a magnet and first target.`;
     return null;})();
   const canArm6=rr!==null&&rr>=2&&plan.entry&&plan.stop&&plan.target&&sz&&sz.contracts>=1;
-  const gaugeAligned=(p)=>{const g=pdGauge(p,brief.tdo,brief.two);
-    if(!g||!g.dirBias)return{ok:true,g};
-    return{ok:g.dirBias===plan.dir,g};};
+  const brokeThrough=(p,openVal)=>{const pr=parseFloat(p),ov=parseFloat(openVal);
+    if(!pr||!ov)return false;
+    return plan.dir==="short"?pr<ov:pr>ov;};
   if(!gate){
     return(<div style={{animation:"rise .35s ease both"}}>
       {cooldownLeft>0&&<CooldownBar left={cooldownLeft}/>}
-      <PdBanner pd={ds.pd}/><NewsBanner news={ds.nextNews}/>
+      <StackBanner stack={ds.stack} qt={ds.qt} verdict={ds.verdict}/><NewsBanner news={ds.nextNews}/>
       <Panel accent={C.powder} style={{textAlign:"center",padding:"44px 20px"}}>
         <Eyebrow color={C.powderHi} ><span style={{margin:"0 auto"}}>HUNT MODE</span></Eyebrow>
         <div style={{fontFamily:disp,fontSize:20,fontWeight:700,letterSpacing:"0.12em",color:C.white,margin:"16px 0 6px",lineHeight:1.7}}>
@@ -760,8 +911,12 @@ function HuntMode({ds,settings,clock,onOpenGate,onArm,onArmPlan,onDecide,onEndSe
         <div style={{fontFamily:sans,fontSize:12,color:C.muted,marginBottom:26}}>
           {watchOnly?"Observation day — the gate is watch-only per your contract.":"Open a gate only when the market starts building your setup."}</div>
         <div style={{display:"flex",gap:10,maxWidth:380,margin:"0 auto"}}>
-          <Cta color={C.powderHi} disabled={limitReached} onClick={onOpenGate}>◆ OPEN A GATE</Cta>
+          {ds.verdict&&ds.verdict.code==="STAND_DOWN"
+            ?<Cta ghost color={C.loss} disabled={limitReached} onClick={()=>onOpenGate(true)}>OPEN ANYWAY — LOGGED AS FORCED</Cta>
+            :<Cta color={C.powderHi} disabled={limitReached} onClick={()=>onOpenGate(false)}>◆ OPEN A GATE</Cta>}
         </div>
+        {ds.verdict&&ds.verdict.code==="STAND_DOWN"&&<div style={{fontFamily:mono,fontSize:9,color:C.loss,
+          letterSpacing:"0.08em",marginTop:10,lineHeight:1.6}}>THE VERDICT SAYS THERE IS NO TRADE HERE. FORCING ONE BECOMES A PERMANENT LEDGER EVENT.</div>}
         {limitReached&&<div style={{fontFamily:mono,fontSize:9,color:C.loss,letterSpacing:"0.1em",marginTop:10}}>CONTRACT LIMIT REACHED — {ds.trades.length}/{brief.maxTrades} TRADES</div>}
         <button onClick={onEndSession} style={{marginTop:22,background:"transparent",border:"none",color:C.dim,
           fontFamily:mono,fontSize:10,letterSpacing:"0.12em",cursor:"pointer"}}>END SESSION → DEBRIEF</button>
@@ -771,38 +926,38 @@ function HuntMode({ds,settings,clock,onOpenGate,onArm,onArmPlan,onDecide,onEndSe
   }
   return(<div style={{animation:"rise .35s ease both"}}>
     {cooldownLeft>0&&<CooldownBar left={cooldownLeft}/>}
-    <PdBanner pd={entryPd||ds.pd}/><NewsBanner news={ds.nextNews}/>
+    <StackBanner stack={entryStack} qt={ds.qt} verdict={ds.verdict}/><NewsBanner news={ds.nextNews}/>
     <Panel accent={C.bolt}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <Eyebrow color={C.bolt}><Bolt size={12}/>THE GATE</Eyebrow>
         <div style={{fontFamily:mono,fontSize:11,color:C.textDim}}>
-          <b style={{color:C.bolt,fontSize:14}}>{armedCount}</b>/6 · Q <b style={{color:q>=settings.qualityFloor?C.win:C.loss,fontSize:14}}>{q}</b> LIVE</div>
+          <b style={{color:C.bolt,fontSize:14}}>{armedCount}</b>/7 · Q <b style={{color:q>=settings.qualityFloor?C.win:C.loss,fontSize:14}}>{q}</b> LIVE</div>
       </div>
       {GATE_STAGES.slice(0,4).map((s,i)=>(<GateStage key={s.k} def={s} brief={brief}
         armed={gate.stages[s.k]} locked={watchOnly}
         isNext={i===armedCount} onArm={onArm}/>))}
-      {/* Stage 5 — TDO break */}
-      <GateStage def={GATE_STAGES[4]} brief={brief} armed={gate.stages.tdo} locked={watchOnly}
-        isNext={armedCount===4} onArm={p=>{
-          const a=gaugeAligned(p.price);
-          if(!a.ok)return alert(`${p.price} is ${a.g.label} — above the opens you hunt SHORTS, below them LONGS. This gate is planned ${plan.dir.toUpperCase()}.`);
-          onArm({...p,opt:a.g&&a.g.dirBias?`${a.g.label} — ${plan.dir.toUpperCase()} aligned`:"Straddling the opens — neutral"});}}/>
-      {/* Stage 6 — plan + R:R */}
+      {/* Stage 05 — TFC taps */}
+      <TfcStage def={GATE_STAGES[4]} armed={stageTfc} isNext={armedCount===4} locked={watchOnly}
+        dir={plan.dir} onArm={onArm}/>
+      {/* Stage 06 — TRUE OPEN BREAK: the trigger */}
+      <BreakStage def={GATE_STAGES[5]} armed={stageBrk} isNext={armedCount===5} locked={watchOnly}
+        dir={plan.dir} opens={ds.opens} brokeThrough={brokeThrough} onArm={onArm}/>
+      {/* Stage 07 — plan + R:R */}
       <div style={{display:"flex",gap:12}}>
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:26,flexShrink:0}}>
           <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
-            background:stage6?`${C.bolt}1A`:C.faint,border:`2px solid ${stage6?C.bolt:armedCount===5?C.powderHi:C.dim}`,
-            boxShadow:stage6?`0 0 16px ${C.bolt}66`:"none"}}>
-            {stage6?<Bolt size={12} glow/>:<span style={{fontFamily:mono,fontSize:9,color:armedCount===5?C.powderHi:C.dim,fontWeight:700}}>06</span>}</div>
+            background:stagePlan?`${C.bolt}1A`:C.faint,border:`2px solid ${stagePlan?C.bolt:armedCount===6?C.powderHi:C.dim}`,
+            boxShadow:stagePlan?`0 0 16px ${C.bolt}66`:"none"}}>
+            {stagePlan?<Bolt size={12} glow/>:<span style={{fontFamily:mono,fontSize:9,color:armedCount===6?C.powderHi:C.dim,fontWeight:700}}>07</span>}</div>
         </div>
         <div style={{flex:1}}>
           <div style={{fontFamily:disp,fontSize:12.5,fontWeight:700,letterSpacing:"0.1em",
-            color:stage6?C.bolt:armedCount===5?C.text:C.dim}}>{GATE_STAGES[5].title}</div>
-          <div style={{fontFamily:sans,fontSize:11,color:C.muted,lineHeight:1.5,margin:"2px 0 9px"}}>{GATE_STAGES[5].sub}</div>
-          {(armedCount===5||stage6)&&(<div>
+            color:stagePlan?C.bolt:armedCount===6?C.text:C.dim}}>{GATE_STAGES[6].title}</div>
+          <div style={{fontFamily:sans,fontSize:11,color:C.muted,lineHeight:1.5,margin:"2px 0 9px"}}>{GATE_STAGES[6].sub}</div>
+          {(armedCount===6||stagePlan)&&(<div>
             <div style={{display:"flex",gap:7,marginBottom:9}}>
               {[{v:"long",l:"LONG",c:C.win},{v:"short",l:"SHORT",c:C.loss}].map(d=>(
-                <Pill key={d.v} sm color={d.c} active={plan.dir===d.v} onClick={()=>!stage6&&setPlan(p=>({...p,dir:d.v}))}>{d.l}</Pill>))}
+                <Pill key={d.v} sm color={d.c} active={plan.dir===d.v} onClick={()=>!stagePlan&&setPlan(p=>({...p,dir:d.v}))}>{d.l}</Pill>))}
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
               <Field label="ENTRY"><Input numeric value={plan.entry} onChange={v=>setPlan(p=>({...p,entry:v}))} placeholder="entry"/></Field>
@@ -820,7 +975,7 @@ function HuntMode({ds,settings,clock,onOpenGate,onArm,onArmPlan,onDecide,onEndSe
               ■ STOP TOO WIDE — ONE MNQ AT {sz.stopPts.toFixed(2)} PTS RISKS ${sz.perContract.toFixed(0)}, OVER YOUR ${settings.riskPerTrade} CAP. TIGHTEN THE STOP OR WALK.</div>)}
             {wallWarn&&<div style={{fontFamily:mono,fontSize:9.5,color:C.warn,letterSpacing:"0.04em",lineHeight:1.5,
               border:`1px solid ${C.warn}44`,background:`${C.warn}0D`,borderRadius:8,padding:"8px 10px",marginBottom:9}}>⚠ {wallWarn}</div>}
-            {!stage6&&<button onClick={()=>canArm6&&onArmPlan({stage:"rr",opt:`1:${rr.toFixed(1)} · ${sz.contracts} MNQ · $${sz.actualRisk.toFixed(0)} risk`,plan:{...plan,rr,contracts:sz.contracts,actualRisk:sz.actualRisk}})}
+            {!stagePlan&&<button onClick={()=>canArm6&&onArmPlan({stage:"rr",opt:`1:${rr.toFixed(1)} · ${sz.contracts} MNQ · $${sz.actualRisk.toFixed(0)} risk`,plan:{...plan,rr,contracts:sz.contracts,actualRisk:sz.actualRisk}})}
               disabled={!canArm6}
               style={{padding:"9px 18px",border:"none",borderRadius:9,cursor:canArm6?"pointer":"not-allowed",
               fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
@@ -832,7 +987,7 @@ function HuntMode({ds,settings,clock,onOpenGate,onArm,onArmPlan,onDecide,onEndSe
       {/* THE LOCK */}
       <div style={{marginTop:16,borderTop:`1px dashed ${C.border}`,paddingTop:14}}>
         {!unlocked&&(<div style={{fontFamily:mono,fontSize:9.5,color:C.dim,letterSpacing:"0.14em",textAlign:"center",marginBottom:12}}>
-          ░░ ENTRY LOCKED — {watchOnly?"OBSERVATION DAY":cooldownLeft>0?"COOLDOWN ACTIVE":limitReached?"CONTRACT LIMIT":!fullArm?`${6-armedCount} STAGE${6-armedCount>1?"S":""} REMAIN`:`QUALITY ${q} < FLOOR ${settings.qualityFloor}`} ░░</div>)}
+          ░░ ENTRY LOCKED — {watchOnly?"OBSERVATION DAY":cooldownLeft>0?"COOLDOWN ACTIVE":limitReached?"CONTRACT LIMIT":!fullArm?`${7-armedCount} STAGE${7-armedCount>1?"S":""} REMAIN`:`QUALITY ${q} < FLOOR ${settings.qualityFloor}`} ░░</div>)}
         <div style={{display:"flex",gap:10}}>
           <Cta disabled={!unlocked} onClick={()=>onDecide("TAKE",{plan:gate.plan||{...plan,rr,contracts:sz?sz.contracts:0},quality:q})}>◆ TAKE — {gate.plan?gate.plan.contracts:sz&&sz.contracts>=1?sz.contracts:"—"} MNQ{(gate.plan||sz)?` · $${((gate.plan?gate.plan.actualRisk:0)||(sz?sz.actualRisk:0)).toFixed(0)} RISK`:""}</Cta>
           <div style={{flex:1}}>
@@ -859,15 +1014,106 @@ function CooldownBar({left}){
     <div style={{fontFamily:disp,fontSize:13,fontWeight:700,color:C.loss,letterSpacing:"0.12em"}}>15-MINUTE BREAK · {m}:{s}</div>
     <div style={{fontFamily:sans,fontSize:11,color:C.muted,marginTop:3}}>Valid setup, or did I deviate? The gate is locked until the timer ends.</div></div>);
 }
-function PdBanner({pd}){
-  if(!pd)return null;
-  const c=pd.dirBias==="short"?C.loss:pd.dirBias==="long"?C.win:C.bolt;
-  return(<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap",
-    background:`${c}10`,border:`1px solid ${c}55`,borderRadius:11,padding:"10px 14px",marginBottom:14}}>
-    <span style={{fontFamily:disp,fontSize:12,fontWeight:700,letterSpacing:"0.12em",color:c,
-      textShadow:`0 0 14px ${c}44`}}>{pd.dirBias==="short"?"▲ ":pd.dirBias==="long"?"▼ ":"◆ "}
-      {pd.label}{pd.dirBias?` — HUNTING ${pd.dirBias==="short"?"SHORTS":"LONGS"}`:""}</span>
-    <span style={{fontFamily:mono,fontSize:9.5,color:C.muted}}>MARK {pd.mark}{pd.tdo?` · TDO ${pd.tdo}`:""}{pd.two?` · TWO ${pd.two}`:""}</span></div>);
+function StackBanner({stack,qt,verdict}){
+  if(!verdict)return null;
+  return(<div style={{border:`1px solid ${verdict.color}55`,background:`${verdict.color}0D`,
+    borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"baseline"}}>
+      <span style={{fontFamily:disp,fontSize:13,fontWeight:700,letterSpacing:"0.12em",color:verdict.color,
+        textShadow:`0 0 16px ${verdict.color}55`}}>◆ {verdict.label}</span>
+      {qt&&<span style={{fontFamily:mono,fontSize:9,color:C.muted,letterSpacing:"0.06em"}}>
+        {qt.quarter} · {qt.role} · {qt.micro} · <b style={{color:qt.window==="PRIME"?C.win:qt.window==="SWEEP"?C.bolt:C.loss}}>{qt.window}</b></span>}
+    </div>
+    {stack&&(<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:9}}>
+      {stack.rows.map(r=>(<span key={r.k} style={{fontFamily:mono,fontSize:9,letterSpacing:"0.06em",
+        border:`1px solid ${r.side==="premium"?C.loss:C.win}55`,color:r.side==="premium"?C.loss:C.win,
+        background:`${r.side==="premium"?C.loss:C.win}0A`,borderRadius:6,padding:"3px 8px"}}>
+        {r.short} {r.value} {r.side==="premium"?"▲P":"▼D"}</span>))}
+      <span style={{fontFamily:mono,fontSize:8,color:C.dim,letterSpacing:"0.1em",alignSelf:"center"}}>MACRO→MICRO</span>
+    </div>)}
+    <div style={{fontFamily:sans,fontSize:10.5,color:C.muted,marginTop:8,lineHeight:1.5}}>{verdict.note}</div>
+  </div>);
+}
+const TFC_OPTS=[{v:"2u",l:"2U ▲",c:C.win},{v:"2d",l:"2D ▼",c:C.loss},{v:"1",l:"1 · IN",c:C.bolt},{v:"3",l:"3 · OUT",c:C.powderHi}];
+const tierColor=t=>t==="ELITE"?C.win:t==="HIGH"?C.powderHi:t==="MODERATE"?C.bolt:C.loss;
+function TfcStage({def,armed,isNext,locked,dir,onArm}){
+  const [tf,setTf]=useState({q:null,m:null,w:null,d:null,h4:null});
+  const on=!!armed;const c=on?C.bolt:isNext&&!locked?C.powderHi:C.dim;
+  const al=alignmentOf(tf,dir);
+  const ready=al&&al.tier!=="INCOMPLETE";
+  const row=f=>(<div key={f.k} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+    <span style={{fontFamily:mono,fontSize:9,color:C.muted,minWidth:86,letterSpacing:"0.08em"}}>{f.l}</span>
+    {TFC_OPTS.map(o=>(<Pill key={o.v} sm color={o.c} active={tf[f.k]===o.v} onClick={()=>setTf(p=>({...p,[f.k]:o.v}))}>{o.l}</Pill>))}</div>);
+  return(<div style={{display:"flex",gap:12}}>
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:26,flexShrink:0}}>
+      <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+        background:on?`${C.bolt}1A`:C.faint,border:`2px solid ${c}`,zIndex:1,
+        boxShadow:on?`0 0 16px ${C.bolt}66`:"none"}}>
+        {on?<Bolt size={12} glow/>:<span style={{fontFamily:mono,fontSize:9,color:c,fontWeight:700}}>{def.n}</span>}</div>
+      <div style={{flex:1,width:2,background:on?`linear-gradient(180deg,${C.bolt},${C.powder})`:C.border,minHeight:14}}/>
+    </div>
+    <div style={{flex:1,paddingBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+        <div style={{fontFamily:disp,fontSize:12.5,fontWeight:700,letterSpacing:"0.1em",color:on?C.bolt:isNext&&!locked?C.text:C.dim}}>{def.title}</div>
+        {(on||ready)&&(()=>{const a=on?alignmentOf(armed.tfc,dir):al;
+          return a&&a.tier!=="INCOMPLETE"?(<span style={{fontFamily:mono,fontSize:9.5,fontWeight:700,
+            letterSpacing:"0.1em",color:tierColor(a.tier)}}>{a.tier} · {a.withT}/5 WITH</span>):null;})()}
+      </div>
+      <div style={{fontFamily:sans,fontSize:11,color:on?C.textDim:C.muted,lineHeight:1.5,marginTop:2}}>
+        {on?`${TFC_FRAMES.map(f=>(armed.tfc[f.k]||"—").toUpperCase()).join(" / ")} — ${armed.opt}`:def.sub}</div>
+      {isNext&&!locked&&!on&&(<div style={{marginTop:9,display:"flex",flexDirection:"column",gap:7}}>
+        {TFC_FRAMES.map(row)}
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <button onClick={()=>{if(!ready)return;
+            const opt=al.tier==="ELITE"?"FULL FTFC — HIGHEST PROBABILITY"
+              :al.tier==="HIGH"?"STRONG CONTINUITY"
+              :al.tier==="MODERATE"?"PARTIAL CONTINUITY — WEIGHED IN QUALITY"
+              :"CONTINUITY NOT THERE — WEIGHED HEAVILY AGAINST";
+            onArm({stage:"tfc",opt,tfc:{...tf},tier:al.tier});}}
+            disabled={!ready}
+            style={{padding:"9px 18px",border:"none",borderRadius:9,cursor:ready?"pointer":"not-allowed",
+            fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+            background:ready?`linear-gradient(135deg,${C.powderHi},${C.powder})`:C.faint,
+            color:ready?"#04101F":C.dim}}>ARM FTFC ▸</button>
+          <span style={{fontFamily:mono,fontSize:8.5,color:C.dim,letterSpacing:"0.06em",lineHeight:1.6}}>
+            STRAT CANDLE STATE PER TIMEFRAME — YOUR 15M TRIGGER (STAGE 04) IS THE SUB-1H ENTRY THAT MUST FIND THIS ALIGNMENT</span></div>
+      </div>)}
+    </div></div>);
+}
+function BreakStage({def,armed,isNext,locked,dir,opens,brokeThrough,onArm}){
+  const avail=OPEN_DEFS.filter(d=>opens&&opens[d.k]);
+  const [pick,setPick]=useState("tdo");
+  const [price,setPrice]=useState("");
+  const on=!!armed;const c=on?C.bolt:isNext&&!locked?C.powderHi:C.dim;
+  return(<div style={{display:"flex",gap:12}}>
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:26,flexShrink:0}}>
+      <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+        background:on?`${C.bolt}1A`:C.faint,border:`2px solid ${c}`,zIndex:1,
+        boxShadow:on?`0 0 16px ${C.bolt}66`:"none"}}>
+        {on?<Bolt size={12} glow/>:<span style={{fontFamily:mono,fontSize:9,color:c,fontWeight:700}}>{def.n}</span>}</div>
+      <div style={{flex:1,width:2,background:on?`linear-gradient(180deg,${C.bolt},${C.powder})`:C.border,minHeight:14}}/>
+    </div>
+    <div style={{flex:1,paddingBottom:14}}>
+      <div style={{fontFamily:disp,fontSize:12.5,fontWeight:700,letterSpacing:"0.1em",color:on?C.bolt:isNext&&!locked?C.text:C.dim}}>{def.title}</div>
+      <div style={{fontFamily:sans,fontSize:11,color:on?C.textDim:C.muted,lineHeight:1.5,marginTop:2}}>
+        {on?`${armed.opt}${armed.price?" @ "+armed.price:""}`:def.sub}</div>
+      {isNext&&!locked&&!on&&(<div style={{marginTop:9,display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {avail.map(d=>(<Pill key={d.k} sm color={C.powderHi} active={pick===d.k} onClick={()=>setPick(d.k)}>{d.short} {opens[d.k]}</Pill>))}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <Input numeric value={price} onChange={setPrice} placeholder="break price" style={{maxWidth:150,padding:"9px 11px"}}/>
+          <button onClick={()=>{
+            if(!avail.length)return alert("No opens set — the break needs an anchor.");
+            if(!brokeThrough(price,opens[pick]))
+              return alert(`${price||"—"} has not broken ${pick.toUpperCase()} ${opens[pick]} to the ${dir==="short"?"downside":"upside"}. The trigger is the break THROUGH the open in your direction.`);
+            const d=OPEN_DEFS.find(x=>x.k===pick);
+            onArm({stage:"tdo",opt:`Broke ${d.short} ${dir==="short"?"↓ out of premium":"↑ out of discount"}`,price});}}
+            style={{padding:"9px 18px",border:"none",borderRadius:9,cursor:"pointer",
+            fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+            background:`linear-gradient(135deg,${C.powderHi},${C.powder})`,color:"#04101F"}}>ARM ▸</button>
+        </div></div>)}
+    </div></div>);
 }
 function NewsBanner({news}){
   if(!news)return null;
@@ -880,6 +1126,7 @@ function TodayStream({ds}){
     DECISION:{c:C.bolt,l:"DECIDE"},TRADE_OPENED:{c:C.bolt,l:"ENTRY"},TRADE_CLOSED:{c:C.textDim,l:"EXIT"},
     COOLDOWN_START:{c:C.loss,l:"COOLDN"},BREAKER_TRIP:{c:C.loss,l:"WALL"},BREAKER_OVERRIDE:{c:C.loss,l:"OVRRD"},
     TRADE_RECONCILED:{c:C.ice,l:"SYNC"},TRADE_FLAGGED:{c:C.loss,l:"FLAG"},
+    GATE_FORCED:{c:C.loss,l:"FORCED"},NYO_SET:{c:C.ice,l:"NYO"},
     STATE_CHECK:{c:C.ice,l:"STATE"},LOSS_REVIEWED:{c:C.powderHi,l:"REVIEW"},DEBRIEF_SIGNED:{c:C.win,l:"SIGNED"}};
   const rows=ds.evs.filter(e=>meta[e.type]);
   if(!rows.length)return null;
@@ -890,6 +1137,8 @@ function TodayStream({ds}){
     if(e.type==="TRADE_CLOSED")return `${e.data.outcome.toUpperCase()} · ${money(e.data.pnl)} · ${(e.data.r||0).toFixed(2)}R${e.data.imported?" · IMPORTED":""}`;
     if(e.type==="TRADE_RECONCILED")return e.data.confirmed?`CONFIRMED vs broker · ${money(e.data.pnl)}`:`CALIBRATED to broker · ${money(e.data.pnl)} (Δ ${money(e.data.delta)})`;
     if(e.type==="STATE_CHECK")return e.data.state;
+    if(e.type==="NYO_SET")return `NY open stamped @ ${e.data.price}`;
+    if(e.type==="GATE_FORCED")return "Gate opened against a STAND DOWN verdict";
     return e.data&&e.data.note?e.data.note:e.data&&e.data.reason?e.data.reason:"";};
   return(<Panel><Eyebrow>TODAY'S LEDGER — APPEND-ONLY</Eyebrow>
     <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:10}}>
@@ -1080,26 +1329,29 @@ function ReflBar({label,yes,total,color}){
 }
 
 /* ════ LEVELS — the daily board conclusions and entries are drawn from ════ */
-function LevelsMode({ds,onAddLevel,onRemoveLevel,onSetMark}){
+function LevelsMode({ds,onAddLevel,onRemoveLevel,onSetMark,onSetNyo}){
   const brief=ds.brief;
   const [type,setType]=useState("eqh");
   const [price,setPrice]=useState("");
   const [note,setNote]=useState("");
   const [mk,setMk]=useState("");
+  const [nyo,setNyo]=useState("");
   if(!brief)return(<Panel style={{textAlign:"center",padding:"40px 20px"}}>
     <div style={{fontFamily:mono,fontSize:11,color:C.dim,letterSpacing:"0.1em",lineHeight:2}}>
       THE LEVEL BOARD IS DAY-SCOPED.<br/>SEAL THE MORNING BRIEF FIRST — TDO AND TWO ANCHOR THE LADDER.</div></Panel>);
   const rows=[
-    ...(brief.tdo?[{price:brief.tdo,kind:"open",l:"TRUE DAY OPEN",c:C.bolt}]:[]),
-    ...(brief.two?[{price:brief.two,kind:"open",l:"TRUE WEEK OPEN",c:C.bolt}]:[]),
+    ...(brief.tmo?[{price:brief.tmo,kind:"open",l:"TRUE MONTH OPEN · MACRO",c:C.boltHi}]:[]),
+    ...(brief.two?[{price:brief.two,kind:"open",l:"TRUE WEEK OPEN · MACRO",c:C.bolt}]:[]),
+    ...(brief.tdo?[{price:brief.tdo,kind:"open",l:"TRUE DAY OPEN · MICRO",c:C.bolt}]:[]),
+    ...(ds.opens&&ds.opens.nyo?[{price:ds.opens.nyo,kind:"open",l:"NY OPEN 9:30 · MICRO",c:C.ice}]:[]),
     ...ds.levels.map(lv=>({...lv,kind:"level",l:levelTypeOf(lv.type).l,c:levelTypeOf(lv.type).c})),
     ...(ds.mark?[{price:ds.mark,kind:"mark",l:"MARK",c:C.white}]:[]),
   ].sort((a,b)=>parseFloat(b.price)-parseFloat(a.price));
   const m=parseFloat(ds.mark);
   return(<div style={{animation:"rise .35s ease both"}}>
-    <PdBanner pd={ds.pd}/>
+    <StackBanner stack={ds.stack} qt={ds.qt} verdict={ds.verdict}/>
     <Panel accent={C.bolt}>
-      <Eyebrow color={C.bolt}><Bolt size={12}/>NQ MARK — DRIVES THE GAUGE</Eyebrow>
+      <Eyebrow color={C.bolt}><Bolt size={12}/>NQ MARK — DRIVES THE STACK</Eyebrow>
       <div style={{display:"flex",gap:8,marginTop:10}}>
         <Input numeric value={mk} onChange={setMk} placeholder={ds.mark?`mark ${ds.mark}`:"current NQ price"}/>
         <button onClick={()=>{if(mk){onSetMark(mk);setMk("");}}} style={{padding:"11px 18px",border:"none",
@@ -1108,6 +1360,14 @@ function LevelsMode({ds,onAddLevel,onRemoveLevel,onSetMark}){
       </div>
       <div style={{fontFamily:sans,fontSize:10.5,color:C.muted,marginTop:8,lineHeight:1.5}}>
         Above the true opens = premium, hunt shorts. Below = discount, hunt longs. Updating the mark updates every gauge in the OS.</div>
+      {!(ds.opens&&ds.opens.nyo)&&(<div style={{marginTop:12,borderTop:`1px dashed ${C.border}`,paddingTop:12}}>
+        <div style={{fontFamily:mono,fontSize:9,color:C.ice,letterSpacing:"0.14em",marginBottom:7}}>NY OPEN · 9:30 — STAMP IT WHEN THE BELL RINGS</div>
+        <div style={{display:"flex",gap:8}}>
+          <Input numeric value={nyo} onChange={setNyo} placeholder="9:30 open print"/>
+          <button onClick={()=>{if(nyo){onSetNyo(nyo);setNyo("");}}} style={{padding:"11px 18px",border:"none",
+            borderRadius:9,cursor:"pointer",fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+            background:`linear-gradient(135deg,${C.ice},${C.powderHi})`,color:"#04101F",whiteSpace:"nowrap"}}>SET NYO</button>
+        </div></div>)}
     </Panel>
     <Panel accent={C.powderHi}>
       <Eyebrow color={C.powderHi}>THE LADDER — TODAY'S KEY LEVELS</Eyebrow>
@@ -1534,7 +1794,8 @@ function seedDemo(settings){
       fourHClear:regime!=="flip",weeklyAligned:Math.random()<0.7,
       declaration:`${dir.toUpperCase()}S only. Two max. ${dir==="short"?"Premium above the opens":"Discount below the opens"} — wait for the sweep.`,
       spyFlip:"687",spyPut:"680",spyCall:"695",spySpot:"685",
-      tdo:String(tdo),two:String(tdo-30),spot:String(tdo+(dir==="short"?25:-25))}});
+      tmo:String(tdo-80),tdo:String(tdo),two:String(tdo-30),spot:String(tdo+(dir==="short"?25:-25))}});
+    out.push({ts:base+35*60000,type:"NYO_SET",data:{price:String(tdo+(dir==="short"?12:-12))}});
     const nGates=1+Math.floor(Math.random()*3);let t=base+30*60000;let losses=0;
     for(let g=0;g<nGates;g++){
       const gid=`g${base}-${g}`;out.push({ts:t,type:"GATE_OPEN",data:{gateId:gid}});t+=rand(4,15)*60000;
@@ -1546,6 +1807,12 @@ function seedDemo(settings){
       const risk=cts*stopPts*settings.ptValue;
       const pnl=win?risk*rand(1.6,2.1):-risk*rand(0.9,1.05);
       const tid=`t${base}-${g}`;const entry=tdo+(dir==="short"?Math.floor(rand(10,50)):-Math.floor(rand(10,50)));
+      const wv=dir==="long"?"2u":"2d",av=dir==="long"?"2d":"2u";
+      const nAl=win?(Math.random()<0.6?5:4):(Math.random()<0.5?3:4);
+      const frames=["q","m","w","d","h4"];const tfcSeed={};
+      frames.forEach((f,ix)=>{tfcSeed[f]=ix<nAl?wv:(Math.random()<0.5?av:"1");});
+      out.push({ts:t-60000,type:"STAGE_ARMED",data:{gateId:gid,stage:"tfc",opt:"seeded",tfc:tfcSeed,
+        tier:nAl===5?"ELITE":nAl===4?"HIGH":"MODERATE"}});
       out.push({ts:t,type:"DECISION",data:{gateId:gid,action:"TAKE",quality:q}});
       out.push({ts:t+2000,type:"TRADE_OPENED",data:{tradeId:tid,gateId:gid,dir,entry,stop:dir==="long"?entry-stopPts:entry+stopPts,
         target:dir==="long"?entry+2*stopPts:entry-2*stopPts,contracts:cts,quality:q,regime}});
@@ -1553,6 +1820,8 @@ function seedDemo(settings){
       out.push({ts:t,type:"TRADE_CLOSED",data:{tradeId:tid,dir,outcome:win?"win":"loss",pnl:Math.round(pnl),
         r:pnl/risk,quality:q,regime,exit:entry+(pnl/(cts*settings.ptValue))*(dir==="long"?1:-1),
         state:win?"calm":Math.random()<0.4?"tilted":"rushed",gaugeAligned:true,
+        fullStack:Math.random()<0.6,alignTier:nAl===5?"ELITE":nAl===4?"HIGH":"MODERATE",
+        window:["PRIME","SWEEP","PM DRIVE","CHOP"][Math.floor(rand(0,win?2.2:4))],
         postCooldown:losses>0&&Math.random()<0.5}});
       if(!win){losses++;out.push({ts:t+1000,type:"COOLDOWN_START",data:{note:"Loss logged"}});t+=COOLDOWN_MS;}
       if(losses>=2)break;t+=rand(20,70)*60000;
@@ -1603,7 +1872,9 @@ function EdgeOS(){
 
   /* actions */
   const seal=b=>{append("BRIEF_SEALED",b);flash("Contract sealed — immutable until tomorrow");};
-  const openGate=()=>append("GATE_OPEN",{gateId:`g${Date.now()}`});
+  const openGate=forced=>{
+    if(forced)append("GATE_FORCED",{note:"Opened against STAND DOWN",verdict:ds.verdict?ds.verdict.label:""});
+    append("GATE_OPEN",{gateId:`g${Date.now()}`,forced:!!forced});};
   const arm=p=>{if(ds.gate)append("STAGE_ARMED",{gateId:ds.gate.gateId,...p});};
   const decide=(action,extra)=>{
     if(!ds.gate)return;
@@ -1614,7 +1885,9 @@ function EdgeOS(){
       append("TRADE_OPENED",{tradeId:`t${Date.now()}`,gateId:ds.gate.gateId,dir:plan.dir,
         entry:parseFloat(plan.entry),stop:parseFloat(plan.stop),target:parseFloat(plan.target),
         contracts:plan.contracts,quality:extra.quality,regime:ds.brief.regime,
-        gaugeAligned:g&&g.dirBias?g.dirBias===plan.dir:null});
+        gaugeAligned:g&&g.dirBias?g.dirBias===plan.dir:null,
+        fullStack:ds.stack?!!ds.stack.full:null,window:ds.qt?ds.qt.window:null,
+        alignTier:ds.gate&&ds.gate.stages.tfc?ds.gate.stages.tfc.tier:null});
       flash("Entry stamped — manage the R");
     }else flash(action==="PASS"?"Pass logged — discipline recorded":"Gate expired — logged");
   };
@@ -1626,7 +1899,7 @@ function EdgeOS(){
     const postCooldown=ds.cooldownUntil>0&&(Date.now()-ds.cooldownUntil)<20*60000&&Date.now()>ds.cooldownUntil;
     append("TRADE_CLOSED",{tradeId:t.tradeId,dir:t.dir,outcome,exit,pnl,r:risk?pnl/risk:0,
       quality:t.quality,regime:t.regime,state,postCooldown,gaugeAligned:t.gaugeAligned,
-      durationMs:Date.now()-t.openedAt});
+      fullStack:t.fullStack,window:t.window,alignTier:t.alignTier,durationMs:Date.now()-t.openedAt});
     append("STATE_CHECK",{state});
     if(outcome==="loss")append("COOLDOWN_START",{note:"Loss logged — 15-minute break"});
     flash(`${outcome.toUpperCase()} · ${money(pnl)} stamped`);
@@ -1637,6 +1910,7 @@ function EdgeOS(){
   const addLevel=l=>{append("LEVEL_ADD",{id:`lv${Date.now()}`,...l});flash("Level added to the board");};
   const removeLevel=id=>append("LEVEL_REMOVE",{id});
   const setMark=p=>{append("MARK_SET",{price:p});flash(`Mark set — ${p}`);};
+  const setNyo=p=>{append("NYO_SET",{price:p});flash(`NY open stamped — ${p}`);};
   const addEcon=e=>{append("ECON_ADD",{id:`ec${Date.now()}`,...e});flash("Event added — the mission will watch it");};
   const removeEcon=id=>append("ECON_REMOVE",{id});
   const signReflection=d=>{append("REFLECTION_SIGNED",d);flash("Reflection signed — on the record");};
@@ -1676,12 +1950,12 @@ function EdgeOS(){
     </div>
     <Ribbon ds={ds} mode={mode}/>
     {/* MISSION — the auto-routed mode machine */}
-    {nav==="mission"&&mode==="BRIEF"&&<BriefMode settings={settings} onSeal={seal}/>}
+    {nav==="mission"&&mode==="BRIEF"&&<BriefMode settings={settings} prefill={lastOpensPrefill(ledger)} onSeal={seal}/>}
     {nav==="mission"&&mode==="HUNT"&&<HuntMode ds={ds} settings={settings} clock={clock}
       onOpenGate={openGate} onArm={arm} onArmPlan={arm} onDecide={decide} onEndSession={()=>setForceDebrief(true)}/>}
     {nav==="mission"&&mode==="EXECUTE"&&<ExecuteMode ds={ds} settings={settings} onClose={closeTrade}/>}
     {nav==="mission"&&mode==="DEBRIEF"&&<DebriefMode ds={ds} onSign={sign} onBack={()=>setForceDebrief(false)}/>}
-    {nav==="levels"&&<LevelsMode ds={ds} onAddLevel={addLevel} onRemoveLevel={removeLevel} onSetMark={setMark}/>}
+    {nav==="levels"&&<LevelsMode ds={ds} onAddLevel={addLevel} onRemoveLevel={removeLevel} onSetMark={setMark} onSetNyo={setNyo}/>}
     {nav==="review"&&<ReviewMode ledger={ledger} settings={settings} ds={ds}
       onSignReflection={signReflection} onSignPeriod={signPeriod}/>}
     {nav==="cal"&&<CalendarMode ledger={ledger} onAdd={addEcon} onRemove={removeEcon}/>}
