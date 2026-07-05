@@ -44,16 +44,36 @@
 
 <script type="text/plain" id="app-source">
 /* ═══════════════════════════════════════════════════════════════════
-   EDGE OS — The Discretionary Trader's Operating System
-   Bolt Edition · Powder Blue / Sunshine Gold / Deep Navy
-   Single-file PWA · React 18 · localStorage event ledger · Offline-ready
+   EDGE OS — a cognitive operating system for discretionary decisions
+   Bolt Edition · single-file PWA · React 18 · offline-ready
    ═══════════════════════════════════════════════════════════════════
-   ARCHITECTURE
-   · Everything is an EVENT appended to an immutable ledger.
-   · All state (mode, breakers, P&L, insights) is DERIVED — never entered.
-   · Modes, not tabs: BRIEF → HUNT → EXECUTE → LOCKOUT → DEBRIEF.
-   · The Gate: 6 sequential stages; the sizer is locked behind 6/6 + Q≥8.
-   · Circuit breakers are an OS state, not a rule you must remember.       */
+   ONE FRAMEWORK · FIVE DOMAINS — everything below belongs to exactly one:
+
+   SUBSTRATE    the ledger. Every fact is an appended event; all state is
+                derived, never entered. (storage · time · ledger engine)
+   PERCEPTION   what the market is. SPY regime · the open stack (TWO
+                weighted / TDO+NYO entry / TMO context) · levels · the
+                quarterly clock · news. (pdStackOf · qtOf · levelsOf ·
+                econ · MARKET screen)
+   ORIENTATION  what it means for you. The sealed contract · the verdict.
+                (BRIEF/ORIENT · verdictOf)
+   DECISION     the Gate. Seven stages, one live quality number, TAKE or
+                PASS — both recorded. (alignmentOf · qualityOf · sizer)
+   EXECUTION    the live trade and its guardrails. R-cockpit · cooldowns ·
+                circuit breakers as an OS state. (EXECUTE · LOCKOUT)
+   LEARNING     the loop closes. Debrief · reflection · periods · stats ·
+                broker truth. (insights · periodStats · reconcile · LEARN)
+
+   The mission screen walks the loop left to right, every day:
+   PERCEIVE → ORIENT → DECIDE → EXECUTE → LEARN.                          */
+const LOOP=["PERCEIVE","ORIENT","DECIDE","EXECUTE","LEARN"];
+const MODE_LABEL={BRIEF:"ORIENT",HUNT:"DECIDE",EXECUTE:"EXECUTE",LOCKOUT:"LOCKOUT",DEBRIEF:"LEARN"};
+function loopPhaseOf(nav,mode){
+  if(nav==="market")return"PERCEIVE";
+  if(nav==="review")return"LEARN";
+  if(nav==="system")return null;
+  return mode==="BRIEF"?"ORIENT":mode==="HUNT"?"DECIDE":mode==="EXECUTE"?"EXECUTE":"LEARN";
+}
 
 const {useState,useEffect,useMemo,useRef}=React;
 
@@ -173,7 +193,6 @@ function dayStateOf(ledger,settings){
   const lockReviewNeeded=trades.filter(t=>t.outcome==="loss"&&!evs.some(e=>e.type==="LOSS_REVIEWED"&&e.data.tradeId===t.tradeId));
   const mk=lastOf(evs,"MARK_SET");
   const mark=mk?mk.data.price:(brief&&brief.spot)||"";
-  const pd=brief?pdGauge(mark,brief.tdo,brief.two):null;
   const nyoEv=lastOf(evs,"NYO_SET");
   const opens=brief?{tmo:brief.tmo,two:brief.two,tdo:brief.tdo,nyo:nyoEv?nyoEv.data.price:""}:null;
   const stack=opens?pdStackOf(mark,opens):null;
@@ -184,7 +203,7 @@ function dayStateOf(ledger,settings){
   const nextNews=newsStateOf(econToday,Date.now());
   return{key,evs,brief,trades,dayPnl,consec,takes,passes,cooldownUntil,overridden,debriefed,
     reasons,tripped:reasons.length>0&&!overridden,lockReviewNeeded,
-    mark,pd,levels,econToday,nextNews,opens,stack,qt,verdict,
+    mark,levels,econToday,nextNews,opens,stack,qt,verdict,
     gate:openGateOf(evs),openTrade:openTradeOf(evs)};
 }
 
@@ -697,7 +716,7 @@ function Eyebrow({children,color=C.powderHi}){
 function Panel({children,accent,style}){
   return(<div style={{background:`linear-gradient(180deg,${C.panel} 0%,${C.bg2} 100%)`,
     border:`1px solid ${C.border}`,borderTop:accent?`2px solid ${accent}`:`1px solid ${C.border}`,
-    borderRadius:14,padding:"16px 16px",marginBottom:14,...style}}>{children}</div>);
+    borderRadius:14,padding:"18px 18px",marginBottom:16,...style}}>{children}</div>);
 }
 function Pill({children,color=C.powderHi,active,onClick,sm}){
   return(<button onClick={onClick} style={{background:active?`${color}1F`:"transparent",
@@ -731,41 +750,63 @@ function StatChip({label,value,color=C.textDim}){
     <div style={{fontFamily:mono,fontSize:15,fontWeight:700,color}}>{value}</div></div>);
 }
 
-/* ════ REGIME RIBBON — ambient context, every screen ════ */
+/* ════ THE LOOP — one strip, five stages, always oriented ════ */
+function LoopStrip({phase}){
+  return(<div style={{display:"flex",alignItems:"center",gap:0,marginBottom:12}}>
+    {LOOP.map((p,i)=>(<React.Fragment key={p}>
+      <span style={{fontFamily:mono,fontSize:8,letterSpacing:"0.22em",
+        color:phase===p?C.bolt:C.dim,fontWeight:phase===p?700:400,
+        textShadow:phase===p?`0 0 12px ${C.bolt}66`:"none",whiteSpace:"nowrap"}}>{p}</span>
+      {i<LOOP.length-1&&<span style={{flex:1,height:1,background:C.border,margin:"0 8px",minWidth:8}}/>}
+    </React.Fragment>))}
+  </div>);
+}
+
+/* ════ REGIME RIBBON — the essentials; detail one tap away ════ */
 function Ribbon({ds,mode}){
+  const [open,setOpen]=useState(false);
   const brief=ds.brief,rg=regimeOf(brief?brief.regime:"neg");
   const dirDef=brief?DIRS.find(d=>d.v===brief.direction):null;
   const pnlC=ds.dayPnl>0?C.win:ds.dayPnl<0?C.loss:C.muted;
   const seg=(l,v,c)=>(<span style={{display:"inline-flex",gap:5,alignItems:"baseline",whiteSpace:"nowrap"}}>
     <span style={{color:C.dim}}>{l}</span><span style={{color:c||C.textDim,fontWeight:700}}>{v}</span></span>);
-  return(<div style={{display:"flex",gap:14,alignItems:"center",overflowX:"auto",scrollbarWidth:"none",
-    background:`linear-gradient(90deg,${rg.color}14,transparent 40%),${C.panel}`,
+  const detail=[
+    brief&&brief.tmo?["TMO",brief.tmo,C.dim]:null,
+    brief&&brief.two?["TWO",brief.two,C.bolt]:null,
+    brief&&brief.tdo?["TDO",brief.tdo,C.ice]:null,
+    ds.opens&&ds.opens.nyo?["NYO",ds.opens.nyo,C.ice]:null,
+    brief&&brief.spyFlip?["SPY FLIP",brief.spyFlip,C.textDim]:null,
+    brief&&brief.spyPut?["SPY PW",brief.spyPut,C.loss]:null,
+    brief&&brief.spyCall?["SPY CW",brief.spyCall,C.win]:null,
+  ].filter(Boolean);
+  return(<div style={{background:`linear-gradient(90deg,${rg.color}12,transparent 40%),${C.panel}`,
     border:`1px solid ${C.border}`,borderLeft:`3px solid ${rg.color}`,borderRadius:10,
-    padding:"8px 13px",marginBottom:14,fontFamily:mono,fontSize:10,letterSpacing:"0.05em"}}>
-    <span style={{color:rg.color,fontWeight:700,whiteSpace:"nowrap",textShadow:`0 0 12px ${rg.color}66`}}>◉ {brief?"SPY "+rg.short:"NO BRIEF"}</span>
-    {ds.stack&&ds.stack.dirBias?seg(ds.stack.full?"STACK ◆":"WEEKLY",
-      ds.stack.dirBias==="short"?"HUNT SHORTS":"HUNT LONGS",
-      ds.stack.dirBias==="short"?C.loss:C.win):ds.stack?seg("STACK","MIXED",C.bolt):null}
-    {ds.qt?seg("QT",`${ds.qt.quarter.split(" · ")[0]} ${ds.qt.window}`,
-      ds.qt.window==="PRIME"?C.win:ds.qt.window==="SWEEP"?C.bolt:C.loss):null}
-    {brief&&brief.tmo?seg("TMO",brief.tmo,C.boltHi):null}
-    {brief&&brief.two?seg("TWO",brief.two,C.ice):null}
-    {brief&&brief.tdo?seg("TDO",brief.tdo,C.ice):null}
-    {ds.opens&&ds.opens.nyo?seg("NYO",ds.opens.nyo,C.ice):null}
-    {brief&&brief.spyFlip?seg("SPY FLIP",brief.spyFlip):null}
-    {brief&&brief.spyPut?seg("SPY PW",brief.spyPut,C.loss):null}
-    {brief&&brief.spyCall?seg("SPY CW",brief.spyCall,C.win):null}
-    {ds.nextNews?seg("NEWS",`${ds.nextNews.name} ${ds.nextNews.phase==="pre"?"IN "+Math.ceil(ds.nextNews.ms/60000)+"M":"SETTLING"}`,C.warn):null}
-    {dirDef?seg("CONTRACT",`${dirDef.l.split(" — ")[0]} · ${ds.trades.length}/${brief.maxTrades||"∞"}`,dirDef.color)
-      :seg("CONTRACT","UNSEALED",C.bolt)}
-    {seg("P&L",money(ds.dayPnl),pnlC)}
-    <span style={{display:"inline-flex",gap:4,alignItems:"center"}}>
-      <span style={{color:C.dim}}>BRK</span>
-      {[0,1].map(i=>(<span key={i} style={{width:7,height:7,borderRadius:"50%",
-        background:ds.consec>i?C.loss:C.faint,border:`1px solid ${ds.consec>i?C.loss:C.border}`,
-        boxShadow:ds.consec>i?`0 0 8px ${C.loss}`:"none"}}/>))}
-    </span>
-    {seg("MODE",mode,C.bolt)}
+    padding:"8px 13px",marginBottom:16,fontFamily:mono,fontSize:10,letterSpacing:"0.05em"}}>
+    <div style={{display:"flex",gap:14,alignItems:"center",overflowX:"auto",scrollbarWidth:"none"}}>
+      <span style={{color:rg.color,fontWeight:700,whiteSpace:"nowrap",textShadow:`0 0 12px ${rg.color}55`}}>◉ {brief?"SPY "+rg.short:"NO BRIEF"}</span>
+      {ds.stack&&ds.stack.dirBias?seg(ds.stack.full?"STACK ◆":"WEEKLY",
+        ds.stack.dirBias==="short"?"HUNT SHORTS":"HUNT LONGS",
+        ds.stack.dirBias==="short"?C.loss:C.win):ds.stack?seg("STACK","MIXED",C.bolt):null}
+      {ds.qt?seg("QT",`${ds.qt.quarter.split(" · ")[0]} ${ds.qt.window}`,
+        ds.qt.window==="PRIME"?C.win:ds.qt.window==="SWEEP"?C.bolt:C.loss):null}
+      {ds.nextNews?seg("NEWS",`${ds.nextNews.name} ${ds.nextNews.phase==="pre"?"IN "+Math.ceil(ds.nextNews.ms/60000)+"M":"SETTLING"}`,C.warn):null}
+      {dirDef
+        ?seg("CONTRACT",`${dirDef.l.split(" — ")[0]} · ${ds.trades.length}/${brief.maxTrades||"∞"}`,dirDef.color)
+        :seg("CONTRACT","UNSEALED",C.bolt)}
+      {seg("P&L",money(ds.dayPnl),pnlC)}
+      <span style={{display:"inline-flex",gap:4,alignItems:"center"}}>
+        <span style={{color:C.dim}}>BRK</span>
+        {[0,1].map(i=>(<span key={i} style={{width:7,height:7,borderRadius:"50%",
+          background:ds.consec>i?C.loss:C.faint,border:`1px solid ${ds.consec>i?C.loss:C.border}`,
+          boxShadow:ds.consec>i?`0 0 8px ${C.loss}`:"none"}}/>))}
+      </span>
+      {detail.length>0&&<button onClick={()=>setOpen(!open)} style={{background:"transparent",border:"none",
+        color:C.dim,fontFamily:mono,fontSize:10,cursor:"pointer",padding:"0 2px",marginLeft:"auto"}}>{open?"▾":"▸"}</button>}
+    </div>
+    {open&&detail.length>0&&(<div style={{display:"flex",gap:14,alignItems:"center",overflowX:"auto",
+      scrollbarWidth:"none",marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.border}`}}>
+      {detail.map(([l,v,c])=>seg(l,v,c))}
+    </div>)}
   </div>);
 }
 
@@ -785,7 +826,7 @@ function BriefMode({settings,prefill,onSeal}){
     <Panel accent={C.bolt}>
       <Eyebrow color={C.bolt}><Bolt size={12}/>MORNING BRIEF — SEALED BEFORE THE OPEN</Eyebrow>
       <div style={{height:12}}/>
-      <Eyebrow>STEP 0 — SPY GEX REGIME · THE PAIR YOU READ, NQ IS WHAT YOU TRADE</Eyebrow>
+      <Eyebrow>01 · REGIME — SPY GEX</Eyebrow>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,margin:"10px 0 6px"}}>
         {REGIMES.map(r=>(<button key={r.v} onClick={()=>set("regime",r.v)} style={{
           background:b.regime===r.v?`${r.color}14`:C.faint,border:`1px solid ${b.regime===r.v?r.color:C.border}`,
@@ -794,6 +835,8 @@ function BriefMode({settings,prefill,onSeal}){
           <div style={{fontFamily:mono,fontSize:8,color:C.dim,marginTop:3,letterSpacing:"0.06em"}}>{r.env}</div></button>))}
       </div>
       <div style={{fontFamily:sans,fontSize:11,color:rg.color,lineHeight:1.5,marginBottom:14,opacity:.9}}>{rg.note}</div>
+      <Eyebrow>02 · THE OPENS — NQ</Eyebrow>
+      <div style={{height:10}}/>
       <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:14}}>
         <Field label="SPY GAMMA FLIP"><Input numeric value={b.spyFlip} onChange={v=>set("spyFlip",v)} placeholder="687"/></Field>
         <Field label="SPY CALL WALL"><Input numeric value={b.spyCall} onChange={v=>set("spyCall",v)} placeholder="695"/></Field>
@@ -815,6 +858,8 @@ function BriefMode({settings,prefill,onSeal}){
           <div style={{marginTop:6,color:g.dirBias==="short"?C.loss:C.win,fontWeight:700}}>
             NOW: {g.label} — {g.dirBias==="short"?"SHORTS":"LONGS"} FAVORED</div>):null;})()}
       </div>
+      <Eyebrow>03 · STRUCTURE</Eyebrow>
+      <div style={{height:10}}/>
       <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:16}}>
         <Field label="4H CLEAR DIRECTION (NOT CHOPPY)?">{yn("fourHClear")}</Field>
         <Field label="WEEKLY ALIGNED WITH 4H?">{yn("weeklyAligned")}</Field>
@@ -822,7 +867,7 @@ function BriefMode({settings,prefill,onSeal}){
       {b.fourHClear===false&&(<div style={{fontFamily:mono,fontSize:10,color:C.warn,letterSpacing:"0.08em",
         border:`1px solid ${C.warn}44`,background:`${C.warn}0D`,borderRadius:9,padding:"9px 12px",marginBottom:14}}>
         4H CHOPPY — OBSERVATION DAY. THE GATE WILL OPEN IN WATCH-ONLY MODE.</div>)}
-      <Eyebrow>TODAY I AM ONLY LOOKING FOR</Eyebrow>
+      <Eyebrow>04 · THE CONTRACT — TODAY I AM ONLY LOOKING FOR</Eyebrow>
       <div style={{display:"flex",gap:7,flexWrap:"wrap",margin:"10px 0 16px"}}>
         {DIRS.map(d=>(<Pill key={d.v} color={d.color} active={b.direction===d.v} onClick={()=>set("direction",d.v)}>{d.l}</Pill>))}
       </div>
@@ -905,6 +950,7 @@ function HuntMode({ds,settings,clock,onOpenGate,onArm,onArmPlan,onDecide,onEndSe
     return null;})();
   const canArm6=rr!==null&&rr>=2&&plan.entry&&plan.stop&&plan.target&&sz&&sz.contracts>=1;
   const [ctsOverride,setCtsOverride]=useState(null);
+  const [whyOpen,setWhyOpen]=useState(false);
   if(!gate){
     return(<div style={{animation:"rise .35s ease both"}}>
       {cooldownLeft>0&&<CooldownBar left={cooldownLeft}/>}
@@ -1029,9 +1075,14 @@ function HuntMode({ds,settings,clock,onOpenGate,onArm,onArmPlan,onDecide,onEndSe
           border:"none",color:C.dim,fontFamily:mono,fontSize:9,letterSpacing:"0.14em",cursor:"pointer"}}>ABANDON GATE — LOG AS EXPIRED</button>
       </div>
     </Panel>
-    <Panel><Eyebrow>QUALITY — LIVE PRE-MORTEM</Eyebrow>
-      <div style={{marginTop:9,display:"flex",flexDirection:"column",gap:5}}>
-        {why.map((w,i)=>(<div key={i} style={{fontFamily:mono,fontSize:10.5,color:C.textDim}}>▸ {w}</div>))}</div></Panel>
+    <Panel style={{padding:"12px 18px"}}>
+      <button onClick={()=>setWhyOpen(!whyOpen)} style={{width:"100%",background:"transparent",border:"none",
+        cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:0}}>
+        <Eyebrow>QUALITY {q} — WHY</Eyebrow>
+        <span style={{fontFamily:mono,fontSize:10,color:C.dim}}>{whyOpen?"▾":"▸"}</span></button>
+      {whyOpen&&<div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5}}>
+        {why.map((w,i)=>(<div key={i} style={{fontFamily:mono,fontSize:10.5,color:C.textDim}}>▸ {w}</div>))}</div>}
+    </Panel>
     <TodayStream ds={ds}/>
   </div>);
 }
@@ -1161,6 +1212,7 @@ function NewsBanner({news}){
     ⚠ {news.name} {news.phase==="pre"?`IN ${Math.ceil(news.ms/60000)} MIN`:"SETTLING"} · Q −2</div>);
 }
 function TodayStream({ds}){
+  const [streamAll,setStreamAll]=useState(false);
   const meta={BRIEF_SEALED:{c:C.powderHi,l:"SEALED"},GATE_OPEN:{c:C.ice,l:"GATE"},STAGE_ARMED:{c:C.bolt,l:"ARMED"},
     DECISION:{c:C.bolt,l:"DECIDE"},TRADE_OPENED:{c:C.bolt,l:"ENTRY"},TRADE_CLOSED:{c:C.textDim,l:"EXIT"},
     COOLDOWN_START:{c:C.loss,l:"COOLDN"},BREAKER_TRIP:{c:C.loss,l:"WALL"},BREAKER_OVERRIDE:{c:C.loss,l:"OVRRD"},
@@ -1179,14 +1231,20 @@ function TodayStream({ds}){
     if(e.type==="NYO_SET")return `@ ${e.data.price}`;
     if(e.type==="GATE_FORCED")return "Against STAND DOWN";
     return e.data&&e.data.note?e.data.note:e.data&&e.data.reason?e.data.reason:"";};
+  const all=[...rows].reverse();
+  const shown=streamAll?all:all.slice(0,5);
   return(<Panel><Eyebrow>LEDGER</Eyebrow>
     <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:10}}>
-      {[...rows].reverse().map((e,i)=>{const m=meta[e.type];
+      {shown.map((e,i)=>{const m=meta[e.type];
         return(<div key={i} style={{display:"flex",gap:10,alignItems:"baseline",fontFamily:mono,fontSize:10.5}}>
           <span style={{color:C.dim,flexShrink:0}}>{fmtT(e.ts)}</span>
           <span style={{color:m.c,fontWeight:700,minWidth:56,flexShrink:0,letterSpacing:"0.06em"}}>{m.l}</span>
           <span style={{color:C.muted,fontFamily:sans,fontSize:11,lineHeight:1.45}}>{noteOf(e)}</span></div>);})}
-    </div></Panel>);
+    </div>
+    {all.length>5&&<button onClick={()=>setStreamAll(!streamAll)} style={{width:"100%",marginTop:10,
+      background:"transparent",border:"none",color:C.dim,fontFamily:mono,fontSize:9,
+      letterSpacing:"0.12em",cursor:"pointer"}}>{streamAll?"SHOW LESS ▴":`SHOW ALL ${all.length} ▸`}</button>}
+  </Panel>);
 }
 
 function ExecuteMode({ds,settings,onClose}){
@@ -1878,11 +1936,25 @@ function seedDemo(settings){
   return out.sort((a,b)=>a.ts-b.ts);
 }
 
+/* ════ PERCEPTION — the market screen: levels · calendar ════ */
+function MarketMode({ds,ledger,onAddLevel,onRemoveLevel,onSetMark,onSetNyo,onAddEcon,onRemoveEcon}){
+  const [sub,setSub]=useState("levels");
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <div style={{display:"flex",gap:6,marginBottom:16}}>
+      <Pill sm color={C.bolt} active={sub==="levels"} onClick={()=>setSub("levels")}>LEVELS</Pill>
+      <Pill sm color={C.warn} active={sub==="cal"} onClick={()=>setSub("cal")}>CALENDAR</Pill>
+    </div>
+    {sub==="levels"&&<LevelsMode ds={ds} onAddLevel={onAddLevel} onRemoveLevel={onRemoveLevel}
+      onSetMark={onSetMark} onSetNyo={onSetNyo}/>}
+    {sub==="cal"&&<CalendarMode ledger={ledger} onAdd={onAddEcon} onRemove={onRemoveEcon}/>}
+  </div>);
+}
+
 /* ════ APP — the operating system shell ════ */
 function EdgeOS(){
   const [ledger,setLedger]=useState([]);
   const [settings,setSettings]=useState(loadSettings());
-  const [nav,setNav]=useState("mission"); // mission | levels | review | cal | system
+  const [nav,setNav]=useState("mission"); // mission | market | review | system
   const [forceDebrief,setForceDebrief]=useState(false);
   const [clock,setClock]=useState(new Date());
   const [toast,setToast]=useState("");
@@ -1955,8 +2027,8 @@ function EdgeOS(){
     saveLedger(next);return next;});flash(`Broker sync applied — ${evts.length} event${evts.length===1?"":"s"} written`);};
   const wipe=()=>{setLedger([]);saveLedger([]);flash("Ledger wiped");};
 
-  const NAV=[{id:"mission",l:"MISSION",icon:"◆"},{id:"levels",l:"LEVELS",icon:"≡"},
-    {id:"review",l:"REVIEW",icon:"◈"},{id:"cal",l:"CAL",icon:"▦"},{id:"system",l:"SYSTEM",icon:"⚙"}];
+  const NAV=[{id:"mission",l:"MISSION",icon:"◆"},{id:"market",l:"MARKET",icon:"≡"},
+    {id:"review",l:"LEARN",icon:"◈"},{id:"system",l:"SYSTEM",icon:"⚙"}];
   const modeColor=mode==="LOCKOUT"?C.loss:mode==="EXECUTE"?(ds.openTrade&&ds.openTrade.dir==="long"?C.win:C.loss):mode==="BRIEF"?C.bolt:C.powderHi;
   return(<div style={{minHeight:"100vh",color:C.text,fontFamily:sans,maxWidth:780,margin:"0 auto",
     padding:"max(16px,env(safe-area-inset-top)) 14px calc(84px + env(safe-area-inset-bottom))"}}>
@@ -1968,7 +2040,7 @@ function EdgeOS(){
         </div>
         <h1 style={{fontFamily:disp,fontWeight:700,fontSize:24,letterSpacing:"0.1em",lineHeight:1,margin:0,
           color:C.white,textShadow:`0 0 30px ${modeColor}44`}}>
-          {nav!=="mission"?(nav==="cal"?"CALENDAR":nav.toUpperCase()):mode}</h1>
+          {nav==="market"?"PERCEPTION":nav==="review"?"LEARNING":nav==="system"?"SYSTEM":MODE_LABEL[mode]||mode}</h1>
       </div>
       <div style={{textAlign:"right"}}>
         <div style={{fontFamily:mono,fontSize:15,color:C.textDim}}>{clock.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
@@ -1976,6 +2048,7 @@ function EdgeOS(){
           <span style={{width:5,height:5,borderRadius:"50%",background:C.powderHi,animation:"pulse 2s infinite"}}/>
           <span style={{fontFamily:mono,fontSize:9,color:`${C.powderHi}88`}}>LOCAL · OFFLINE-READY</span></div></div>
     </div>
+    <LoopStrip phase={loopPhaseOf(nav,mode)}/>
     <Ribbon ds={ds} mode={mode}/>
     {/* MISSION — the auto-routed mode machine */}
     {nav==="mission"&&mode==="BRIEF"&&<BriefMode settings={settings} prefill={lastOpensPrefill(ledger)} onSeal={seal}/>}
@@ -1983,10 +2056,10 @@ function EdgeOS(){
       onOpenGate={openGate} onArm={arm} onArmPlan={arm} onDecide={decide} onEndSession={()=>setForceDebrief(true)}/>}
     {nav==="mission"&&mode==="EXECUTE"&&<ExecuteMode ds={ds} settings={settings} onClose={closeTrade}/>}
     {nav==="mission"&&mode==="DEBRIEF"&&<DebriefMode ds={ds} onSign={sign} onBack={()=>setForceDebrief(false)}/>}
-    {nav==="levels"&&<LevelsMode ds={ds} onAddLevel={addLevel} onRemoveLevel={removeLevel} onSetMark={setMark} onSetNyo={setNyo}/>}
+    {nav==="market"&&<MarketMode ds={ds} ledger={ledger} onAddLevel={addLevel} onRemoveLevel={removeLevel}
+      onSetMark={setMark} onSetNyo={setNyo} onAddEcon={addEcon} onRemoveEcon={removeEcon}/>}
     {nav==="review"&&<ReviewMode ledger={ledger} settings={settings} ds={ds}
       onSignReflection={signReflection} onSignPeriod={signPeriod}/>}
-    {nav==="cal"&&<CalendarMode ledger={ledger} onAdd={addEcon} onRemove={removeEcon}/>}
     {nav==="system"&&<SystemMode ledger={ledger} settings={settings} onSave={s=>{setSettings(s);saveSettings(s);flash("Parameters saved");}}
       onExport={exportAll} onImport={importAll} onSeedDemo={demo} onWipe={wipe} onApplyRecon={applyRecon}/>}
     {/* LOCKOUT overlays everything */}
