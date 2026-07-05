@@ -1,1 +1,2180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#020A14"/>
+<title>EDGE OS — Bolt Edition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{background:#020A14}
+  body{
+    background:
+      radial-gradient(1100px 500px at 85% -10%, rgba(0,128,198,.14), transparent 60%),
+      radial-gradient(900px 420px at -10% 110%, rgba(255,194,14,.06), transparent 60%),
+      linear-gradient(180deg,#020A14 0%,#041020 100%);
+    background-attachment:fixed;min-height:100vh;overscroll-behavior-y:none}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:linear-gradient(rgba(20,48,79,.22) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(20,48,79,.22) 1px,transparent 1px);
+    background-size:44px 44px;
+    mask-image:radial-gradient(ellipse at 50% 0%,black 0%,transparent 75%)}
+  #root{position:relative;z-index:1}
+  input,textarea,button{font:inherit}
+  input:focus,textarea:focus{border-color:#28A5E8 !important;box-shadow:0 0 0 3px rgba(40,165,232,.15)}
+  button:focus-visible{outline:2px solid #FFC20E;outline-offset:2px}
+  ::selection{background:rgba(0,128,198,.4)}
+  ::-webkit-scrollbar{width:0;height:0}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes armPulse{0%{transform:scale(.6)}60%{transform:scale(1.18)}100%{transform:scale(1)}}
+  @media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
 
+<script type="text/plain" id="app-source">
+/* ═══════════════════════════════════════════════════════════════════
+   EDGE OS — a cognitive operating system for discretionary decisions
+   Bolt Edition · single-file PWA · React 18 · offline-ready
+   ═══════════════════════════════════════════════════════════════════
+   ONE FRAMEWORK · FIVE DOMAINS — everything below belongs to exactly one:
+
+   SUBSTRATE    the ledger. Every fact is an appended event; all state is
+                derived, never entered. (storage · time · ledger engine)
+   PERCEPTION   what the market is. SPY regime · the open stack (TWO
+                weighted / TDO+NYO entry / TMO context) · levels · the
+                quarterly clock · news. (pdStackOf · qtOf · levelsOf ·
+                econ · MARKET screen)
+   ORIENTATION  what it means for you. The sealed contract · the verdict.
+                (BRIEF/ORIENT · verdictOf)
+   DECISION     the Gate. Seven stages, one live quality number, TAKE or
+                PASS — both recorded. (alignmentOf · qualityOf · sizer)
+   EXECUTION    the live trade and its guardrails. R-cockpit · cooldowns ·
+                circuit breakers as an OS state. (EXECUTE · LOCKOUT)
+   LEARNING     the loop closes. Debrief · reflection · periods · stats ·
+                broker truth. (insights · periodStats · reconcile · LEARN)
+
+   The mission screen walks the loop left to right, every day:
+   PERCEIVE → ORIENT → DECIDE → EXECUTE → LEARN.                          */
+const LOOP=["PERCEIVE","ORIENT","DECIDE","EXECUTE","LEARN"];
+const MODE_LABEL={BRIEF:"ORIENT",HUNT:"DECIDE",EXECUTE:"EXECUTE",LOCKOUT:"LOCKOUT",DEBRIEF:"LEARN"};
+function loopPhaseOf(nav,mode){
+  if(nav==="market")return"PERCEIVE";
+  if(nav==="review")return"LEARN";
+  if(nav==="system")return null;
+  return mode==="BRIEF"?"ORIENT":mode==="HUNT"?"DECIDE":mode==="EXECUTE"?"EXECUTE":"LEARN";
+}
+
+const {useState,useEffect,useMemo,useRef}=React;
+
+/* ════ DESIGN TOKENS — LA CHARGERS BOLT THEME ════ */
+const mono="'JetBrains Mono',ui-monospace,monospace";
+const sans="'Inter',-apple-system,sans-serif";
+const disp="'Chakra Petch','Inter',sans-serif";
+const C={
+  bg:"#020A14",bg2:"#041020",panel:"#081627",panel2:"#0C1F38",panel3:"#102A4A",
+  border:"#14304F",borderHi:"#1E4470",faint:"#0A1C33",
+  powder:"#0080C6",powderHi:"#28A5E8",ice:"#8FD4FF",
+  bolt:"#FFC20E",boltHi:"#FFD75E",
+  white:"#F2F8FF",text:"#E7F1FB",textDim:"#B9CFE4",muted:"#6C8BAC",dim:"#3B587A",
+  win:"#2EE6A6",loss:"#FF4D5E",warn:"#FFC20E",
+};
+const REGIMES=[
+  {v:"neg",l:"NEGATIVE GEX",short:"NEG GEX",color:C.win,mode:"AMPLIFIER",env:"TRENDING",
+   note:"Dealers fuel momentum. Targets run."},
+  {v:"flip",l:"AT GAMMA FLIP",short:"AT FLIP",color:C.bolt,mode:"TRANSITIONING",env:"UNCERTAIN",
+   note:"Unstable. Wait for acceptance."},
+  {v:"pos",l:"POSITIVE GEX",short:"POS GEX",color:C.loss,mode:"DAMPENER",env:"RANGING",
+   note:"Dealers absorb. Chop builds the setup."},
+];
+const regimeOf=v=>REGIMES.find(r=>r.v===v)||REGIMES[0];
+const DIRS=[{v:"long",l:"LONGS ONLY",color:C.win},{v:"short",l:"SHORTS ONLY",color:C.loss},
+  {v:"either",l:"EITHER — SETUP DECIDES",color:C.powderHi},{v:"none",l:"NO-TRADE DAY",color:C.muted}];
+const STATES=[{v:"calm",l:"CALM"},{v:"confident",l:"CONFIDENT"},{v:"rushed",l:"RUSHED"},{v:"bored",l:"BORED"},{v:"tilted",l:"TILTED"}];
+const PASS_REASONS=["Quality < 8","No sweep","At the flip","Positive GEX","Chop / unclear","TFC fought it","Against declaration"];
+const OVERRIDE_SENTENCE="I am choosing to break my own circuit breaker";
+const COOLDOWN_MS=15*60*1000;
+const GATE_STAGES=[
+  {k:"liq",n:"01",title:"LIQUIDITY BUILT",sub:"Equal highs / lows form",auto:false,needPrice:false,
+   opts:["Equal highs","Equal lows","Both sides"]},
+  {k:"sweep",n:"02",title:"LIQUIDITY SWEPT",sub:"Stops taken — stamp the price",auto:false,needPrice:true,
+   opts:["Swept highs","Swept lows"]},
+  {k:"pda",n:"03",title:"HTF PDA ARRAY",sub:"OB or FVG at the level",auto:false,needPrice:true,
+   opts:["Order Block","FVG"]},
+  {k:"strat",n:"04",title:"STRAT PATTERN · 15M",sub:"2-2 reversal, forming live",auto:false,needPrice:false,
+   opts:["2-2 Reversal","2-1-2","3-1-2","Other Strat"]},
+  {k:"tfc",n:"05",title:"FTFC — H · 4H · D · W · M · Q",sub:"▲ above · ▼ below · IN inside each open",auto:false,needPrice:false,opts:[]},
+  {k:"tdo",n:"06",title:"TRUE OPEN GAUGE",sub:"Premium = shorts · discount = longs",auto:true,needPrice:true,opts:[]},
+  {k:"rr",n:"07",title:"TARGET · OPPOSING LIQ",sub:"Entry · stop · exit — 1:2 minimum",auto:true,needPrice:false,opts:[]},
+];
+
+/* ════ STORAGE — append-only ledger + settings ════ */
+const PFX="edgeos:";
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(PFX+k);return v?JSON.parse(v):d;}catch(_){return d;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(PFX+k,JSON.stringify(v));}catch(_){}};
+const loadLedger=()=>lsGet("ledger",[]);
+const saveLedger=arr=>lsSet("ledger",arr);
+const loadSettings=()=>({riskPerTrade:250,maxDailyLoss:1000,maxTrades:2,qualityFloor:8,ptValue:2,instrument:"MNQ",
+  ...lsGet("settings",{})});
+const saveSettings=s=>lsSet("settings",s);
+
+/* ════ TIME ════ */
+function dateKeyOf(ts){const d=new Date(ts);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+function todayKey(){return dateKeyOf(Date.now());}
+const fmtT=ts=>new Date(ts).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+const fmtD=k=>{const [y,m,d]=k.split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});};
+const money=n=>`${n<0?"−":""}$${Math.abs(Math.round(n)).toLocaleString()}`;
+const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+/* ════ LEDGER ENGINE — pure derivations, no stored state ════ */
+function evOn(ledger,key){return ledger.filter(e=>dateKeyOf(e.ts)===key);}
+function lastOf(evs,type){for(let i=evs.length-1;i>=0;i--)if(evs[i].type===type)return evs[i];return null;}
+function briefOf(evs){const b=lastOf(evs,"BRIEF_SEALED");return b?b.data:null;}
+function openGateOf(evs){
+  const g=lastOf(evs,"GATE_OPEN");if(!g)return null;
+  const resolved=evs.some(e=>e.type==="DECISION"&&e.data.gateId===g.data.gateId);
+  if(resolved)return null;
+  const stages={};let quality=null,plan=null;
+  evs.forEach(e=>{
+    if(e.type==="STAGE_ARMED"&&e.data.gateId===g.data.gateId){stages[e.data.stage]={ts:e.ts,...e.data};if(e.data.plan)plan=e.data.plan;}
+  });
+  return{gateId:g.data.gateId,openedAt:g.ts,stages,plan};
+}
+function openTradeOf(evs){
+  const t=lastOf(evs,"TRADE_OPENED");if(!t)return null;
+  const closed=evs.some(e=>e.type==="TRADE_CLOSED"&&e.data.tradeId===t.data.tradeId);
+  return closed?null:{...t.data,openedAt:t.ts};
+}
+function closedTradesOf(evs){
+  const recon={};evs.forEach(e=>{if(e.type==="TRADE_RECONCILED")recon[e.data.tradeId]=e.data;});
+  return evs.filter(e=>e.type==="TRADE_CLOSED").map(e=>{
+    const r=recon[e.data.tradeId];
+    if(!r)return{ts:e.ts,...e.data};
+    const pnl=r.pnl!=null?r.pnl:e.data.pnl;
+    return{ts:e.ts,...e.data,pnl,outcome:pnl>0?"win":pnl<0?"loss":"be",
+      exit:r.exit!=null?r.exit:e.data.exit,r:r.r!=null?r.r:e.data.r,
+      fees:r.fees,reconciled:true};});
+}
+function decisionsOf(evs){return evs.filter(e=>e.type==="DECISION").map(e=>({ts:e.ts,...e.data}));}
+
+function dayStateOf(ledger,settings){
+  const key=todayKey(),evs=evOn(ledger,key);
+  const brief=briefOf(evs);
+  const trades=closedTradesOf(evs);
+  const dayPnl=trades.reduce((s,t)=>s+(t.pnl||0),0);
+  let consec=0;for(let i=trades.length-1;i>=0;i--){if(trades[i].outcome==="loss")consec++;else break;}
+  const takes=decisionsOf(evs).filter(d=>d.action==="TAKE").length;
+  const passes=decisionsOf(evs).filter(d=>d.action==="PASS").length;
+  const cd=lastOf(evs,"COOLDOWN_START");
+  const cooldownUntil=cd?cd.ts+COOLDOWN_MS:0;
+  const overridden=evs.some(e=>e.type==="BREAKER_OVERRIDE");
+  const debriefed=evs.some(e=>e.type==="DEBRIEF_SIGNED");
+  const reasons=[];
+  if(consec>=2)reasons.push("Two losses in a row — your rule: close the platform, done for the day.");
+  if(settings.maxDailyLoss>0&&dayPnl<=-settings.maxDailyLoss)
+    reasons.push(`${money(dayPnl)} on the day — daily loss limit of $${settings.maxDailyLoss.toLocaleString()} hit.`);
+  if(brief){
+    if(brief.maxTrades>0&&trades.length>brief.maxTrades)
+      reasons.push(`Trade count broke the contract — ${trades.length} taken, ${brief.maxTrades} allowed.`);
+    if(brief.direction==="none"&&trades.length>0)reasons.push("You traded on a declared NO-TRADE day.");
+    if(brief.direction==="long"&&trades.some(t=>t.dir==="short"))reasons.push("SHORT taken on a LONGS-ONLY contract.");
+    if(brief.direction==="short"&&trades.some(t=>t.dir==="long"))reasons.push("LONG taken on a SHORTS-ONLY contract.");
+  }
+  const lockReviewNeeded=trades.filter(t=>t.outcome==="loss"&&!evs.some(e=>e.type==="LOSS_REVIEWED"&&e.data.tradeId===t.tradeId));
+  const mk=lastOf(evs,"MARK_SET");
+  const mark=mk?mk.data.price:(brief&&brief.spot)||"";
+  const nyoEv=lastOf(evs,"NYO_SET");
+  const opens=brief?{tmo:brief.tmo,two:brief.two,tdo:brief.tdo,nyo:nyoEv?nyoEv.data.price:""}:null;
+  const stack=opens?pdStackOf(mark,opens):null;
+  const qt=qtOf(Date.now());
+  const verdict=brief?verdictOf(stack,qt,brief.regime):null;
+  const levels=levelsOf(evs);
+  const econToday=econAllOf(ledger).filter(x=>x.dateKey===key);
+  const nextNews=newsStateOf(econToday,Date.now());
+  return{key,evs,brief,trades,dayPnl,consec,takes,passes,cooldownUntil,overridden,debriefed,
+    reasons,tripped:reasons.length>0&&!overridden,lockReviewNeeded,
+    mark,levels,econToday,nextNews,opens,stack,qt,verdict,
+    gate:openGateOf(evs),openTrade:openTradeOf(evs)};
+}
+
+/* Mode derivation — the app knows what time it is */
+function modeOf(ds){
+  if(ds.tripped)return"LOCKOUT";
+  if(ds.openTrade)return"EXECUTE";
+  if(!ds.brief)return"BRIEF";
+  return"HUNT";
+}
+
+/* ════ QUALITY ENGINE — the auto-grade, moved to pre-mortem ════ */
+function qualityOf(brief,gate,dir,ctx){
+  if(!brief)return{q:0,why:["No brief sealed"]};
+  ctx=ctx||{};
+  const armed=gate?Object.keys(gate.stages).length:0;
+  let q=armed;const why=[`${armed}/7 stages armed`];
+  const rg=brief.regime;
+  if(rg==="neg"){q+=1;why.push("SPY negative GEX — fuel (+1)");}
+  else if(rg==="flip"){q-=2;why.push("SPY at the flip — unstable (\u22122)");}
+  else why.push("SPY positive GEX — context only (+0)");
+  /* THE STACK — location, macro-weighted */
+  if(ctx.stack&&dir){
+    const want=dir==="short"?"premium":"discount";
+    if(ctx.stack.full&&ctx.stack.composite===want){q+=2;why.push(`FULL STACK ${want.toUpperCase()} — weekly + entry pair agree (+2)`);}
+    else if(ctx.stack.macroSide===want){q+=1;why.push(`Weekly open in ${want} — location holds (+1)`);}
+    else if(ctx.stack.macroSide&&ctx.stack.macroSide!=="mixed"){q-=3;why.push(`FIGHTING THE WEEKLY OPEN — TWO says ${ctx.stack.macroSide==="premium"?"shorts":"longs"} (\u22123)`);}
+    else{q-=1;why.push("No weekly open set — no clean location (\u22121)");}
+  }else if(dir)why.push("No opens set — location unknown");
+  /* FTFC — Rob Smith, Q/M/W/D/4H alignment tier */
+  if(ctx.tfc&&dir){
+    const al=alignmentOf(ctx.tfc,dir);
+    if(al&&al.tier==="ELITE"){q+=2;why.push("FTFC ELITE — H/4H/D/W/M/Q all with the trade (+2)");}
+    else if(al&&al.tier==="HIGH"){q+=1;why.push(`FTFC HIGH — ${al.effWith}/6 effective continuity (+1)`);}
+    else if(al&&al.tier==="MODERATE")why.push(`FTFC MODERATE — ${al.effWith}/6 effective, ${al.against} against (+0)`);
+    else if(al&&al.tier==="LOW"){q-=3;why.push(`FTFC LOW — only ${al.effWith}/6 effective continuity (\u22123)`);}
+  }
+  /* QUARTERLY THEORY — time-of-trade probability */
+  if(ctx.qt){
+    if(ctx.qt.bias>0){q+=1;why.push(`${ctx.qt.window} window — distribution time (+1)`);}
+    else if(ctx.qt.bias<0){q-=1;why.push(`${ctx.qt.window} window — dead time (\u22121)`);}
+    else why.push(`${ctx.qt.window} window — ${ctx.qt.role.toLowerCase()} (+0)`);
+  }
+  if(brief.fourHClear===false)why.push("4H choppy — observation flag");
+  if(dir&&brief.direction!=="either"&&brief.direction!=="none"&&dir!==brief.direction){q-=3;why.push("Fights your declaration (\u22123)");}
+  if(ctx.newsSoon){q-=2;why.push("High-impact news window (\u22122)");}
+  q=Math.max(0,Math.min(10,q));
+  return{q,why};
+}
+const TICK=0.25,TICK_VAL=0.5; // MNQ: 0.25 pt tick = $0.50
+const roundTick=p=>Math.round(parseFloat(p)/TICK)*TICK;
+function sizerOf(entry,stop,risk,ptValue){
+  const en=parseFloat(entry),st=parseFloat(stop);
+  if(!en||!st||en===st)return null;
+  const stopPts=Math.abs(roundTick(en)-roundTick(st));
+  if(!stopPts)return null;
+  const perContract=stopPts*ptValue;              // $ risk per 1 MNQ at this stop
+  const contracts=Math.floor(risk/perContract);   // whole contracts only — futures
+  return{stopPts,perContract,contracts,actualRisk:contracts*perContract};
+}
+function rrOf(entry,stop,target){
+  const en=parseFloat(entry),st=parseFloat(stop),tg=parseFloat(target);
+  if(!en||!st||!tg||en===st)return null;
+  return Math.abs(tg-en)/Math.abs(en-st);
+}
+
+/* ════ TRUE OPENS — THE PREMIUM / DISCOUNT GAUGE ════
+   Above the true opens price is PREMIUM: hunt shorts.
+   Below them price is DISCOUNT: hunt longs. This gauge feeds the ribbon,
+   the Gate's stage 5, the quality engine, and every warning surface.      */
+function pdGauge(mark,tdo,two){
+  const m=parseFloat(mark),td=parseFloat(tdo),tw=parseFloat(two);
+  if(!m||(!td&&!tw))return null;
+  const flags=[td?m>td:null,tw?m>tw:null];
+  const ups=flags.filter(x=>x===true).length,downs=flags.filter(x=>x===false).length;
+  let zone,dirBias,label;
+  if(ups&&!downs){zone="premium";dirBias="short";label=ups===2?"DEEP PREMIUM":"PREMIUM";}
+  else if(downs&&!ups){zone="discount";dirBias="long";label=downs===2?"DEEP DISCOUNT":"DISCOUNT";}
+  else{zone="straddle";dirBias=null;label="STRADDLING THE OPENS";}
+  return{mark:m,tdo:td||null,two:tw||null,zone,dirBias,label};
+}
+
+/* ════ THE OPEN STACK — TWO (weighted) · TDO + NYO (entry) · TMO (context) ════
+   TWO is the probability anchor — above/below it hunts shorts/longs and it
+   alone can lock the stack. TDO and NYO are the entry-timing pair for the
+   scalp — daily, intraday. TMO is tracked and shown but never gates a
+   trade: you can be long above the monthly open if the weekly and the
+   entry pair agree. Direction comes from TWO first, entry zone from
+   TDO/NYO; TMO is context only.                                            */
+const OPEN_DEFS=[
+  {k:"tmo",l:"TRUE MONTH OPEN",short:"TMO",scope:"CONTEXT"},
+  {k:"two",l:"TRUE WEEK OPEN",short:"TWO",scope:"MACRO"},
+  {k:"tdo",l:"TRUE DAY OPEN",short:"TDO",scope:"MICRO"},
+  {k:"nyo",l:"NY OPEN · 9:30",short:"NYO",scope:"MICRO"}];
+function pdStackOf(mark,opens){
+  const m=parseFloat(mark);if(!m||!opens)return null;
+  const rows=OPEN_DEFS.map(d=>{const v=parseFloat(opens[d.k]);
+    return isNaN(v)?null:{...d,value:v,side:m>v?"premium":m<v?"discount":"at"};}).filter(Boolean);
+  if(!rows.length)return null;
+  const sideOf=g=>!g.length?null:g.every(r=>r.side==="premium")?"premium":g.every(r=>r.side==="discount")?"discount":"mixed";
+  const weekly=rows.filter(r=>r.scope==="MACRO");   // TWO — the weighted anchor
+  const entry=rows.filter(r=>r.scope==="MICRO");    // TDO + NYO — scalp timing
+  const macroSide=sideOf(weekly);
+  const microSide=sideOf(entry);
+  const directional=[...weekly,...entry];           // TMO excluded — context only
+  const dirSide=sideOf(directional);
+  const full=directional.length>=2&&dirSide&&dirSide!=="mixed";
+  const composite=full?dirSide:(macroSide&&macroSide!=="mixed")?macroSide:null;
+  const dirBias=composite==="premium"?"short":composite==="discount"?"long":null;
+  const label=full?`FULL STACK ${composite.toUpperCase()}`
+    :(macroSide&&macroSide!=="mixed")?`WEEKLY ${macroSide.toUpperCase()}${microSide&&microSide!=="mixed"&&microSide!==macroSide?" · ENTRY "+microSide.toUpperCase():""}`
+    :(microSide&&microSide!=="mixed")?`ENTRY ${microSide.toUpperCase()} · WEEKLY UNSET`
+    :"MIXED STACK";
+  return{mark:m,rows,macroSide,microSide,full,composite,dirBias,label};
+}
+
+/* ════ FTFC ALIGNMENT — Rob Smith, highest timeframe down ════
+   The Strat: continuity means the higher-timeframe candles trade WITH you —
+   Q, M, W, D, 4H all going your way before a sub-1H entry. This is the BIAS
+   engine (calendar candles). The true-open stack is the LOCATION engine
+   (Q2 opens). Direction from continuity; entry zone from premium/discount.  */
+const TFC_FRAMES=[{k:"h1",l:"H"},{k:"h4",l:"4H"},{k:"d",l:"D"},{k:"w",l:"W"},{k:"m",l:"M"},{k:"q",l:"Q"}];
+function alignmentOf(tfc,dir){
+  if(!tfc||!dir)return null;
+  const full=dir==="long"?"2u":"2d",fullAgainst=dir==="long"?"2d":"2u";
+  const lean=dir==="long"?"1g":"1r",leanAgainst=dir==="long"?"1r":"1g";
+  let withFull=0,withLean=0,against=0,set=0;
+  TFC_FRAMES.forEach(f=>{const v=tfc[f.k];if(!v)return;set++;
+    if(v===full)withFull++;
+    else if(v===lean)withLean++;
+    else if(v===fullAgainst||v===leanAgainst)against++;});
+  if(set<TFC_FRAMES.length)return{withFull,withLean,against,set,effWith:withFull+withLean*0.5,tier:"INCOMPLETE"};
+  const effWith=withFull+withLean*0.5;
+  const tier=effWith>=5.5?"ELITE":effWith>=4.5?"HIGH":effWith>=3?"MODERATE":"LOW";
+  return{withFull,withLean,against,set,effWith,tier};
+}
+
+/* ════ QUARTERLY THEORY — time is a quarter machine ════
+   Day quarters (ET): Q1 Asia 18–00 accumulation · Q2 London 00–06
+   manipulation · Q3 NY 06–12 distribution · Q4 PM 12–18 continuation.
+   Each quarter subdivides into 90-minute A/M/D/X cycles. The sweep belongs
+   to manipulation time; the entry belongs to distribution time.             */
+function qtOf(now){
+  const d=new Date(now);const h=d.getHours()+d.getMinutes()/60;
+  let quarter,role,qStart;
+  if(h>=18){quarter="Q1 · ASIA";role="ACCUMULATION";qStart=18;}
+  else if(h<6){quarter="Q2 · LONDON";role="MANIPULATION";qStart=0;}
+  else if(h<12){quarter="Q3 · NEW YORK";role="DISTRIBUTION";qStart=6;}
+  else{quarter="Q4 · PM";role="CONTINUATION / REVERSAL";qStart=12;}
+  const mIx=Math.min(3,Math.floor((h-qStart)*60/90));
+  const micro=["90M-1 ACCUMULATE","90M-2 MANIPULATE","90M-3 DISTRIBUTE","90M-4 CONTINUE"][mIx];
+  let window,bias,note;
+  if(h>=9.5&&h<11.5){window="PRIME";bias=1;note="Distribution. Your window.";}
+  else if(h>=6&&h<9.5){window="SWEEP";bias=0;note="Judas hour. Stalk, don't chase.";}
+  else if(h>=11.5&&h<13.5){window="CHOP";bias=-1;note="Lunch. Moves fail.";}
+  else if(h>=13.5&&h<15.75){window="PM DRIVE";bias=0;note="Second drive. Faster, thinner.";}
+  else{window="OFF";bias=-1;note="Session closed.";}
+  return{quarter,role,micro,window,bias,note};
+}
+
+/* ════ THE VERDICT — the anti-forcing surface ════ */
+function verdictOf(stack,qt,regime){
+  if(!stack)return{code:"SET",label:"SET THE OPENS",color:C.muted,
+    note:"Set TMO · TWO · TDO · NYO."};
+  if(!stack.dirBias)return{code:"STAND_DOWN",label:"STAND DOWN — MIXED STACK",color:C.loss,
+    note:"Opens disagree. Not clear, not there."};
+  if(qt.window==="OFF"||qt.window==="CHOP")return{code:"STAND_DOWN",label:"STAND DOWN — DEAD TIME",color:C.loss,note:qt.note};
+  const hunt=stack.dirBias==="short"?"SHORTS":"LONGS";
+  if(stack.full&&qt.window==="PRIME"&&regime==="neg")
+    return{code:"APLUS",label:`A+ WINDOW — HUNT ${hunt}`,color:C.win,
+      note:"Full stack · prime time · fuel."};
+  if(qt.window==="SWEEP")return{code:"STALK",label:`STALK ${hunt} — SWEEP WINDOW`,color:C.bolt,
+    note:"Let the stops run first."};
+  return{code:"HUNT",label:`HUNT ${hunt}`,color:C.powderHi,note:qt.note};
+}
+
+/* prefill: the month's TMO and the week's TWO carry across briefs */
+function lastOpensPrefill(ledger){
+  const mo=todayKey().slice(0,7),wk=weekBoundsOf(0).weekKey;
+  let tmo="",two="";
+  for(let i=ledger.length-1;i>=0;i--){const e=ledger[i];
+    if(e.type!=="BRIEF_SEALED")continue;
+    const k=dateKeyOf(e.ts);
+    if(!tmo&&e.data.tmo&&k.slice(0,7)===mo)tmo=e.data.tmo;
+    if(!two&&e.data.two&&k>=wk)two=e.data.two;
+    if(tmo&&two)break;}
+  return{tmo,two};
+}
+
+/* ════ KEY LEVELS — the daily board conclusions are drawn from ════ */
+const LEVEL_TYPES=[
+  {v:"eqh",l:"EQ HIGHS",c:C.loss},{v:"eql",l:"EQ LOWS",c:C.win},
+  {v:"asia",l:"ASIA H/L",c:C.ice},{v:"ldn",l:"LONDON H/L",c:C.powderHi},{v:"ny",l:"NY H/L",c:C.boltHi},
+  {v:"ob",l:"ORDER BLOCK",c:C.bolt},{v:"fvg",l:"FVG",c:C.powderHi},
+  {v:"swing",l:"SWING",c:C.textDim},{v:"custom",l:"CUSTOM",c:C.muted}];
+const levelTypeOf=v=>LEVEL_TYPES.find(t=>t.v===v)||LEVEL_TYPES[8];
+function levelsOf(evs){
+  const out={};
+  evs.forEach(e=>{if(e.type==="LEVEL_ADD")out[e.data.id]={ts:e.ts,...e.data};
+    if(e.type==="LEVEL_REMOVE")delete out[e.data.id];});
+  return Object.values(out).sort((a,b)=>parseFloat(b.price)-parseFloat(a.price));
+}
+
+/* ════ ECONOMIC CALENDAR — week-scoped, feeds the mission ════ */
+const ECON_PRESETS=["CPI","FOMC","NFP","PPI","Jobless Claims","Retail Sales","GDP","PCE","Powell Speaks"];
+const IMPACTS=[{v:"high",l:"HIGH",c:C.loss},{v:"med",l:"MED",c:C.bolt},{v:"low",l:"LOW",c:C.muted}];
+function econAllOf(ledger){
+  const out={};
+  ledger.forEach(e=>{if(e.type==="ECON_ADD")out[e.data.id]={ts:e.ts,...e.data};
+    if(e.type==="ECON_REMOVE")delete out[e.data.id];});
+  return Object.values(out);
+}
+function econTsOf(ev){const [y,m,d]=ev.dateKey.split("-").map(Number);
+  const [hh,mm]=(ev.time||"9:00").split(":").map(Number);
+  return new Date(y,m-1,d,hh||9,mm||0).getTime();}
+function newsStateOf(econToday,now){
+  let best=null;
+  econToday.filter(e=>e.impact==="high").forEach(e=>{
+    const ts=econTsOf(e);
+    if(now<ts&&ts-now<=60*60000){const c={name:e.name,phase:"pre",ms:ts-now};
+      if(!best||c.ms<best.ms)best=c;}
+    else if(now>=ts&&now-ts<=30*60000){const c={name:e.name,phase:"settling",ms:now-ts};
+      if(!best||best.phase==="pre")best=best||c;if(!best)best=c;}
+  });
+  return best;
+}
+
+/* ════ PERIODS — week / month windows ════ */
+function weekBoundsOf(offset){
+  const d=new Date();d.setHours(12,0,0,0);
+  const day=(d.getDay()+6)%7; // Mon=0
+  d.setDate(d.getDate()-day+offset*7);
+  const days=[];for(let i=0;i<5;i++){const x=new Date(d.getTime()+i*86400000);days.push(dateKeyOf(x.getTime()));}
+  const from=days[0],to=dateKeyOf(d.getTime()+6*86400000);
+  return{fromKey:from,toKey:to,days,label:`WEEK OF ${fmtD(from).toUpperCase()}`,weekKey:from};
+}
+function monthBoundsOf(offset){
+  const d=new Date();d.setDate(1);d.setMonth(d.getMonth()+offset);
+  const from=dateKeyOf(d.getTime());
+  const end=new Date(d.getFullYear(),d.getMonth()+1,0);
+  return{fromKey:from,toKey:dateKeyOf(end.getTime()),
+    label:end.toLocaleDateString("en-US",{month:"long",year:"numeric"}).toUpperCase(),
+    monthKey:from.slice(0,7)};
+}
+
+/* ════ REFLECTION — simple toggle prompts, three aspects ════ */
+const DAILY_TOGGLES=[
+  {k:"contract",cat:"MENTAL",l:"I followed the contract exactly"},
+  {k:"gauge",cat:"MENTAL",l:"I respected the gauge — shorts in premium, longs in discount"},
+  {k:"aplus",cat:"MENTAL",l:"Only A+ setups. Nothing below the floor"},
+  {k:"boredom",cat:"EMOTIONAL",l:"No boredom or revenge entries"},
+  {k:"steady",cat:"EMOTIONAL",l:"Emotionally steady from open to close"},
+  {k:"sizing",cat:"FINANCIAL",l:"Risk stayed at plan — zero size creep"},
+  {k:"again",cat:"FINANCIAL",l:"I would trade today the same way again"}];
+const WEEKLY_TOGGLES=[
+  {k:"system",cat:"MENTAL",l:"The system felt clear all week — no improvising"},
+  {k:"patience",cat:"MENTAL",l:"I stayed patient through the chop"},
+  {k:"sustain",cat:"EMOTIONAL",l:"This week was emotionally sustainable"},
+  {k:"spiral",cat:"EMOTIONAL",l:"Zero revenge spirals"},
+  {k:"risk",cat:"FINANCIAL",l:"Sizing and risk felt right for the account"},
+  {k:"discipline",cat:"FINANCIAL",l:"My passes were worth more than my mistakes"}];
+const MONTHLY_TOGGLES=[
+  {k:"edge",cat:"FINANCIAL",l:"Gate-honest expectancy is positive this month"},
+  {k:"size",cat:"FINANCIAL",l:"I have earned the right to keep or raise this size"},
+  {k:"trust",cat:"MENTAL",l:"I trust the Gate more than I did last month"},
+  {k:"identity",cat:"MENTAL",l:"I am trading the plan, not my P&L"},
+  {k:"life",cat:"EMOTIONAL",l:"Trading is adding to my life, not draining it"}];
+function reflectionForDay(ledger,dateKey){
+  for(let i=ledger.length-1;i>=0;i--){const e=ledger[i];
+    if(e.type==="REFLECTION_SIGNED"&&e.data.dateKey===dateKey)return e.data;}
+  return null;}
+function periodReviewOf(ledger,type,keyName,keyVal){
+  for(let i=ledger.length-1;i>=0;i--){const e=ledger[i];
+    if(e.type===type&&e.data[keyName]===keyVal)return e.data;}
+  return null;}
+function periodStatsOf(ledger,settings,fromKey,toKey){
+  const evs=ledger.filter(e=>{const k=dateKeyOf(e.ts);return k>=fromKey&&k<=toKey;});
+  const trades=closedTradesOf(evs);
+  const pnl=trades.reduce((s,t)=>s+(t.pnl||0),0);
+  const wins=trades.filter(t=>t.outcome==="win").length;
+  const avgR=trades.length?trades.reduce((s,t)=>s+(t.r||0),0)/trades.length:0;
+  const passes=decisionsOf(evs).filter(d=>d.action==="PASS").length;
+  const takes=decisionsOf(evs).filter(d=>d.action==="TAKE").length;
+  const trips=evs.filter(e=>e.type==="BREAKER_TRIP").length;
+  const overrides=evs.filter(e=>e.type==="BREAKER_OVERRIDE").length;
+  const sessions=evs.filter(e=>e.type==="BRIEF_SEALED").length;
+  const byDay={};trades.forEach(t=>{const k=dateKeyOf(t.ts);byDay[k]=(byDay[k]||0)+(t.pnl||0);});
+  let best=null,worst=null;
+  Object.entries(byDay).forEach(([k,p])=>{if(!best||p>best.pnl)best={k,pnl:p};if(!worst||p<worst.pnl)worst={k,pnl:p};});
+  const states={};trades.forEach(t=>{if(t.state)states[t.state]=(states[t.state]||0)+1;});
+  const debriefs=evs.filter(e=>e.type==="DEBRIEF_SIGNED");
+  const followed={yes:debriefs.filter(e=>e.data.followed).length,total:debriefs.length};
+  const refl={};
+  evs.filter(e=>e.type==="REFLECTION_SIGNED").forEach(e=>{
+    Object.entries(e.data.toggles||{}).forEach(([k,v])=>{
+      refl[k]=refl[k]||{yes:0,total:0};refl[k].total++;if(v)refl[k].yes++;});});
+  return{trades,n:trades.length,pnl,winRate:trades.length?Math.round(wins/trades.length*100):0,
+    avgR,passes,takes,trips,overrides,sessions,best,worst,states,followed,refl,
+    riskAvoided:passes*settings.riskPerTrade};
+}
+
+/* ════ BROKER SYNC — TOPSTEPX CSV → CALIBRATED TRUTH ════
+   Two formats auto-detected:
+   · TRADES export (round-trips: EnteredAt/ExitedAt/EntryPrice/ExitPrice/PnL/Size/Type)
+   · FILLS/ORDERS export (Side/Qty/Price/Time) → FIFO-reconstructed into round trips
+   Reconciled against the ledger: CONFIRMED · ADJUSTED (broker P&L wins) ·
+   IMPORTED (in CSV, not in ledger) · FLAGGED (in ledger, not at the broker).   */
+function parseCsvText(text){
+  const rows=[];let row=[],cell="",inQ=false;
+  for(let i=0;i<text.length;i++){const ch=text[i];
+    if(inQ){if(ch==='"'){if(text[i+1]==='"'){cell+='"';i++;}else inQ=false;}else cell+=ch;}
+    else if(ch==='"')inQ=true;
+    else if(ch===","){row.push(cell);cell="";}
+    else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&text[i+1]==="\n")i++;
+      row.push(cell);cell="";if(row.some(c=>c.trim()!==""))rows.push(row);row=[];}
+    else cell+=ch;}
+  row.push(cell);if(row.some(c=>c.trim()!==""))rows.push(row);
+  return rows;
+}
+const _norm=h=>String(h||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+function colOf(headers,names){
+  const H=headers.map(_norm);
+  for(const n of names){const i=H.findIndex(h=>h.includes(n));if(i>=0)return i;}
+  return -1;
+}
+function parseWhen(v){const t=new Date(v).getTime();return isNaN(t)?null:t;}
+function buildTradesFromCsv(text,settings){
+  const rows=parseCsvText(text);
+  if(rows.length<2)return{trades:[],mode:"empty",skipped:0};
+  const H=rows[0],data=rows.slice(1);
+  const sym=colOf(H,["contractname","symbol","contract","instrument","product"]);
+  const isMnq=r=>sym<0||_norm(r[sym]).includes("mnq");
+  let skipped=0;const trades=[];
+  const entP=colOf(H,["entryprice"]),extP=colOf(H,["exitprice"]);
+  if(entP>=0&&extP>=0){ /* MODE A — round-trip trades export */
+    const size=colOf(H,["size","qty","quantity"]),type=colOf(H,["type","side","direction"]);
+    const entT=colOf(H,["enteredat","entrytime","opened"]),extT=colOf(H,["exitedat","exittime","closed"]);
+    const pnlC=colOf(H,["pnl","profit","netpl","realized"]),feeC=colOf(H,["fees","fee","commission"]);
+    data.forEach(r=>{
+      if(!isMnq(r)){skipped++;return;}
+      const entry=parseFloat(r[entP]),exit=parseFloat(r[extP]);
+      const qty=Math.abs(parseFloat(size>=0?r[size]:1))||1;
+      const dir=_norm(type>=0?r[type]:"").includes("s")&&!_norm(r[type]).includes("long")?"short":
+        _norm(type>=0?r[type]:"").includes("long")||_norm(type>=0?r[type]:"")==="buy"||_norm(type>=0?r[type]:"")==="b"?"long":
+        exit<entry?"short":"long"; /* last-resort guess only if type column missing */
+      const entryTs=entT>=0?parseWhen(r[entT]):null,exitTs=extT>=0?parseWhen(r[extT]):null;
+      if(isNaN(entry)||isNaN(exit)||!exitTs&&!entryTs){skipped++;return;}
+      const fees=feeC>=0?Math.abs(parseFloat(r[feeC])||0):0;
+      let pnl=pnlC>=0?parseFloat(String(r[pnlC]).replace(/[$,()]/g,m=>m==="("?"-":"")):NaN;
+      if(isNaN(pnl))pnl=(exit-entry)*(dir==="long"?1:-1)*qty*settings.ptValue-fees;
+      trades.push({dir,entry,exit,size:qty,pnl:Math.round(pnl*100)/100,fees,
+        entryTs:entryTs||exitTs,exitTs:exitTs||entryTs,src:"trades"});});
+    return{trades,mode:"trades",skipped};
+  }
+  /* MODE B — fills → FIFO */
+  const side=colOf(H,["side","buysell","action","bs"]),price=colOf(H,["fillprice","price","avgprice"]);
+  const qtyC=colOf(H,["filledqty","qty","quantity","size","filled"]);
+  const timeC=colOf(H,["filltime","executed","timestamp","time","date"]);
+  if(side<0||price<0||timeC<0)return{trades:[],mode:"unknown",skipped:data.length};
+  const fills=[];
+  data.forEach(r=>{
+    if(!isMnq(r)){skipped++;return;}
+    const p=parseFloat(r[price]),q=Math.abs(parseFloat(qtyC>=0?r[qtyC]:1))||1,ts=parseWhen(r[timeC]);
+    const sv=_norm(r[side]);
+    const buy=sv.startsWith("b")||sv.includes("buy")||sv.includes("long");
+    const sell=sv.startsWith("s")||sv.includes("sell")||sv.includes("short");
+    if(isNaN(p)||!ts||(!buy&&!sell)){skipped++;return;}
+    fills.push({ts,price:p,qty:q,sign:buy?1:-1});});
+  fills.sort((a,b)=>a.ts-b.ts);
+  const lots=[]; /* open position lots, signed */
+  fills.forEach(f=>{
+    let qty=f.qty;
+    while(qty>0&&lots.length&&lots[0].sign!==f.sign){ /* closing against FIFO */
+      const lot=lots[0];const m=Math.min(qty,lot.qty);
+      const dir=lot.sign>0?"long":"short";
+      const pnl=(f.price-lot.price)*lot.sign*m*settings.ptValue;
+      trades.push({dir,entry:lot.price,exit:f.price,size:m,pnl:Math.round(pnl*100)/100,fees:0,
+        entryTs:lot.ts,exitTs:f.ts,src:"fifo"});
+      lot.qty-=m;qty-=m;if(lot.qty===0)lots.shift();}
+    if(qty>0)lots.push({ts:f.ts,price:f.price,qty,sign:f.sign});});
+  return{trades,mode:"fifo",skipped,openLots:lots.reduce((s,l)=>s+l.qty,0)};
+}
+function reconcileCsv(ledger,csvTrades,settings){
+  const lts=ledger.filter(e=>e.type==="TRADE_CLOSED").map(e=>({ts:e.ts,...e.data}))
+    .filter(t=>!t.imported);
+  const recon={};ledger.forEach(e=>{if(e.type==="TRADE_RECONCILED")recon[e.data.tradeId]=e.data;});
+  const used=new Set();const matches=[];const missing=[];
+  csvTrades.forEach(ct=>{
+    const key=dateKeyOf(ct.exitTs||ct.entryTs);
+    let best=null,bestScore=Infinity;
+    lts.forEach(t=>{
+      if(used.has(t.tradeId)||dateKeyOf(t.ts)!==key||t.dir!==ct.dir)return;
+      const dp=Math.abs((t.entry||0)-ct.entry);
+      if(dp>40)return; /* not the same trade */
+      const dt=Math.abs(t.ts-(ct.exitTs||ct.entryTs))/60000;
+      const score=dp+dt*0.25;
+      if(score<bestScore){bestScore=score;best=t;}});
+    if(!best){missing.push(ct);return;}
+    used.add(best.tradeId);
+    const ledgerPnl=recon[best.tradeId]&&recon[best.tradeId].pnl!=null?recon[best.tradeId].pnl:best.pnl;
+    const delta=Math.round((ct.pnl-ledgerPnl)*100)/100;
+    matches.push({csv:ct,trade:best,delta,status:Math.abs(delta)<=1?"confirmed":"adjusted"});});
+  const csvDays=new Set(csvTrades.map(ct=>dateKeyOf(ct.exitTs||ct.entryTs)));
+  const phantom=lts.filter(t=>csvDays.has(dateKeyOf(t.ts))&&!used.has(t.tradeId));
+  return{matches,missing,phantom,
+    confirmed:matches.filter(m=>m.status==="confirmed").length,
+    adjusted:matches.filter(m=>m.status==="adjusted").length};
+}
+function reconEventsOf(rec,settings){
+  const out=[];
+  rec.matches.forEach(m=>{
+    const risk=m.trade.entry&&m.trade.stop?Math.abs(m.trade.entry-m.trade.stop)*(m.trade.contracts||1)*settings.ptValue:0;
+    out.push({ts:Date.now(),type:"TRADE_RECONCILED",data:{tradeId:m.trade.tradeId,pnl:m.csv.pnl,
+      exit:m.csv.exit,fees:m.csv.fees,r:risk?Math.round(m.csv.pnl/risk*100)/100:null,
+      confirmed:m.status==="confirmed",delta:m.delta}});});
+  rec.missing.forEach((ct,i)=>{
+    const tid=`imp${ct.exitTs||Date.now()}-${i}`;
+    out.push({ts:ct.entryTs||ct.exitTs,type:"TRADE_OPENED",data:{tradeId:tid,dir:ct.dir,entry:ct.entry,
+      stop:null,target:null,contracts:ct.size,quality:null,regime:null,imported:true}});
+    out.push({ts:ct.exitTs||ct.entryTs,type:"TRADE_CLOSED",data:{tradeId:tid,dir:ct.dir,
+      outcome:ct.pnl>0?"win":ct.pnl<0?"loss":"be",exit:ct.exit,pnl:ct.pnl,fees:ct.fees,
+      r:settings.riskPerTrade?Math.round(ct.pnl/settings.riskPerTrade*100)/100:0,
+      quality:null,regime:null,state:null,imported:true}});});
+  rec.phantom.forEach(t=>out.push({ts:Date.now(),type:"TRADE_FLAGGED",
+    data:{tradeId:t.tradeId,note:"Not found in broker CSV for this day — verify"}}));
+  return out;
+}
+
+/* ════ THE NOTICING ENGINE — evidence-linked, sample-size honest ════ */
+function bucketHour(ts){const h=new Date(ts).getHours()+new Date(ts).getMinutes()/60;
+  return h<10?"Before 10:00":h<11.5?"10:00–11:30":"After 11:30";}
+function insightsOf(ledger,settings){
+  const trades=ledger.filter(e=>e.type==="TRADE_CLOSED").map(e=>({ts:e.ts,...e.data}));
+  const out=[];const conf=n=>n>=10?"OBSERVED":n>=5?"EMERGING":"WATCHING";
+  const wr=arr=>arr.length?Math.round(arr.filter(t=>t.outcome==="win").length/arr.length*100):0;
+  const pnlSum=arr=>arr.reduce((s,t)=>s+(t.pnl||0),0);
+  if(trades.length>=5){
+    const base=wr(trades);
+    // regime split
+    REGIMES.forEach(r=>{const g=trades.filter(t=>t.regime===r.v);
+      if(g.length>=5&&Math.abs(wr(g)-base)>=12)
+        out.push({conf:conf(g.length),n:g.length,color:r.color,
+          text:`${r.l} trades win ${wr(g)}% vs your ${base}% baseline (${money(pnlSum(g))} net).`});});
+    // post-cooldown
+    const pc=trades.filter(t=>t.postCooldown);
+    if(pc.length>=5)out.push({conf:conf(pc.length),n:pc.length,color:C.loss,
+      text:`Trades entered within 20 min of a cooldown ending win ${wr(pc)}% vs ${base}% baseline.`});
+    // time of day
+    const buckets={};trades.forEach(t=>{const b=bucketHour(t.ts);(buckets[b]=buckets[b]||[]).push(t);});
+    Object.entries(buckets).forEach(([b,g])=>{if(g.length>=5&&pnlSum(g)<0&&wr(g)<base-10)
+      out.push({conf:conf(g.length),n:g.length,color:C.warn,text:`${b}: ${wr(g)}% win rate, ${money(pnlSum(g))} net. Your worst window.`});});
+    // day of week
+    const dows={};trades.forEach(t=>{const d=DOW[new Date(t.ts).getDay()];(dows[d]=dows[d]||[]).push(t);});
+    Object.entries(dows).forEach(([d,g])=>{if(g.length>=5&&wr(g)<=base-15)
+      out.push({conf:conf(g.length),n:g.length,color:C.warn,text:`${d}s: ${wr(g)}% win rate across ${g.length} trades. Watch this day.`});});
+    // quality split — expectancy honesty
+    const hi=trades.filter(t=>(t.quality||0)>=settings.qualityFloor),lo=trades.filter(t=>(t.quality||0)<settings.qualityFloor);
+    if(hi.length>=5&&lo.length>=3)
+      out.push({conf:conf(Math.min(hi.length,lo.length)),n:trades.length,color:C.powderHi,
+        text:`Gate-honest trades (Q≥${settings.qualityFloor}) win ${wr(hi)}%; sub-floor trades win ${wr(lo)}%. The floor is the edge.`});
+  }
+  if(trades.length>=5){
+    const base=wr(trades);
+    const fs=trades.filter(t=>t.fullStack===true),nf=trades.filter(t=>t.fullStack===false);
+    if(fs.length>=5&&nf.length>=3&&wr(fs)-wr(nf)>=10)
+      out.push({conf:conf(fs.length),n:fs.length,color:C.win,
+        text:`Full-stack entries win ${wr(fs)}% vs ${wr(nf)}% when the opens disagree. The stack is the filter.`});
+    const wins={};trades.forEach(t=>{if(t.window)(wins[t.window]=wins[t.window]||[]).push(t);});
+    Object.entries(wins).forEach(([w,g])=>{if(g.length>=5&&wr(g)<=base-12)
+      out.push({conf:conf(g.length),n:g.length,color:C.warn,
+        text:`${w}-window entries win ${wr(g)}% vs ${base}% baseline — the clock is telling you something.`});});
+    const el=trades.filter(t=>t.alignTier==="ELITE"||t.alignTier==="HIGH");
+    const lo2=trades.filter(t=>t.alignTier==="MODERATE"||t.alignTier==="LOW");
+    if(el.length>=5&&lo2.length>=3&&wr(el)-wr(lo2)>=10)
+      out.push({conf:conf(el.length),n:el.length,color:C.win,
+        text:`ELITE/HIGH continuity entries win ${wr(el)}% vs ${wr(lo2)}% on partial alignment. The HTF ladder is the probability.`});
+    const forced=ledger.filter(e=>e.type==="GATE_FORCED").length;
+    if(forced>=3)out.push({conf:conf(forced),n:forced,color:C.loss,
+      text:`${forced} gates opened against a STAND DOWN verdict. Every one is on the record.`});
+  }
+  const passes=ledger.filter(e=>e.type==="DECISION"&&e.data.action==="PASS").length;
+  if(passes>=5)out.push({conf:conf(passes),n:passes,color:C.win,
+    text:`${passes} recorded passes — ${money(passes*settings.riskPerTrade)} of capital deliberately kept off the table.`});
+  return out;
+}
+function reviewStatsOf(ledger,settings){
+  const trades=ledger.filter(e=>e.type==="TRADE_CLOSED").map(e=>({ts:e.ts,...e.data}));
+  const wins=trades.filter(t=>t.outcome==="win"),losses=trades.filter(t=>t.outcome==="loss");
+  const pnl=trades.reduce((s,t)=>s+(t.pnl||0),0);
+  const passes=ledger.filter(e=>e.type==="DECISION"&&e.data.action==="PASS").length;
+  const takes=ledger.filter(e=>e.type==="DECISION"&&e.data.action==="TAKE").length;
+  const avgR=trades.length?trades.reduce((s,t)=>s+(t.r||0),0)/trades.length:0;
+  const hi=trades.filter(t=>(t.quality||0)>=settings.qualityFloor);
+  const avgRHi=hi.length?hi.reduce((s,t)=>s+(t.r||0),0)/hi.length:0;
+  const overrides=ledger.filter(e=>e.type==="BREAKER_OVERRIDE").length;
+  return{trades,n:trades.length,wins:wins.length,losses:losses.length,
+    winRate:trades.length?Math.round(wins.length/trades.length*100):0,pnl,passes,takes,
+    avgR,avgRHi,nHi:hi.length,overrides,riskAvoided:passes*settings.riskPerTrade};
+}
+
+/* ════ PRIMITIVES ════ */
+function Bolt({size=14,color=C.bolt,glow=false}){
+  return(<svg width={size} height={size} viewBox="0 0 24 24" style={glow?{filter:`drop-shadow(0 0 6px ${color})`}:null}>
+    <path d="M13 2 L4 14 h6 l-1 8 9-12 h-6 z" fill={color}/></svg>);
+}
+function Eyebrow({children,color=C.powderHi}){
+  return(<div style={{fontFamily:mono,fontSize:10,color,letterSpacing:"0.28em",textTransform:"uppercase",
+    display:"flex",alignItems:"center",gap:7}}>{children}</div>);
+}
+function Panel({children,accent,style}){
+  return(<div style={{background:`linear-gradient(180deg,${C.panel} 0%,${C.bg2} 100%)`,
+    border:`1px solid ${C.border}`,borderTop:accent?`2px solid ${accent}`:`1px solid ${C.border}`,
+    borderRadius:14,padding:"18px 18px",marginBottom:16,...style}}>{children}</div>);
+}
+function Pill({children,color=C.powderHi,active,onClick,sm}){
+  return(<button onClick={onClick} style={{background:active?`${color}1F`:"transparent",
+    border:`1px solid ${active?color:C.border}`,color:active?color:C.muted,
+    borderRadius:999,padding:sm?"5px 11px":"8px 14px",fontFamily:mono,fontSize:sm?10:11,fontWeight:700,
+    letterSpacing:"0.06em",cursor:"pointer",transition:"all .15s",boxShadow:active?`0 0 14px ${color}33`:"none"}}>{children}</button>);
+}
+function Input({value,onChange,placeholder,numeric,style,rows}){
+  const base={width:"100%",background:C.faint,border:`1px solid ${C.border}`,borderRadius:9,
+    padding:"11px 12px",color:C.text,fontFamily:numeric?mono:sans,fontSize:numeric?14:13,outline:"none",...style};
+  if(rows)return(<textarea value={value} rows={rows} placeholder={placeholder}
+    onChange={e=>onChange(e.target.value)} style={{...base,resize:"vertical",lineHeight:1.5}}/>);
+  return(<input value={value} inputMode={numeric?"decimal":"text"} placeholder={placeholder}
+    onChange={e=>onChange(numeric?e.target.value.replace(/[^0-9.\-]/g,""):e.target.value)} style={base}/>);
+}
+function Field({label,children,color=C.muted}){
+  return(<div style={{flex:1,minWidth:120}}>
+    <div style={{fontFamily:mono,fontSize:9,color,letterSpacing:"0.16em",marginBottom:6}}>{label}</div>{children}</div>);
+}
+function Cta({children,onClick,disabled,color=C.bolt,ghost}){
+  return(<button onClick={()=>!disabled&&onClick&&onClick()} disabled={disabled}
+    style={{width:"100%",padding:"15px 12px",border:ghost?`1px solid ${color}66`:"none",borderRadius:12,
+    cursor:disabled?"not-allowed":"pointer",fontFamily:disp,fontWeight:700,fontSize:14,letterSpacing:"0.14em",
+    background:disabled?C.faint:ghost?"transparent":`linear-gradient(135deg,${color},${color}CC)`,
+    color:disabled?C.dim:ghost?color:"#04101F",
+    boxShadow:disabled||ghost?"none":`0 4px 26px ${color}44`,transition:"all .15s"}}>{children}</button>);
+}
+function StatChip({label,value,color=C.textDim}){
+  return(<div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",flex:1,minWidth:86}}>
+    <div style={{fontFamily:mono,fontSize:8,color:C.dim,letterSpacing:"0.18em",marginBottom:4}}>{label}</div>
+    <div style={{fontFamily:mono,fontSize:15,fontWeight:700,color}}>{value}</div></div>);
+}
+
+/* ════ THE LOOP — one strip, five stages, always oriented ════ */
+function LoopStrip({phase}){
+  return(<div style={{display:"flex",alignItems:"center",gap:0,marginBottom:12}}>
+    {LOOP.map((p,i)=>(<React.Fragment key={p}>
+      <span style={{fontFamily:mono,fontSize:8,letterSpacing:"0.22em",
+        color:phase===p?C.bolt:C.dim,fontWeight:phase===p?700:400,
+        textShadow:phase===p?`0 0 12px ${C.bolt}66`:"none",whiteSpace:"nowrap"}}>{p}</span>
+      {i<LOOP.length-1&&<span style={{flex:1,height:1,background:C.border,margin:"0 8px",minWidth:8}}/>}
+    </React.Fragment>))}
+  </div>);
+}
+
+/* ════ REGIME RIBBON — the essentials; detail one tap away ════ */
+function Ribbon({ds,mode}){
+  const [open,setOpen]=useState(false);
+  const brief=ds.brief,rg=regimeOf(brief?brief.regime:"neg");
+  const dirDef=brief?DIRS.find(d=>d.v===brief.direction):null;
+  const pnlC=ds.dayPnl>0?C.win:ds.dayPnl<0?C.loss:C.muted;
+  const seg=(l,v,c)=>(<span style={{display:"inline-flex",gap:5,alignItems:"baseline",whiteSpace:"nowrap"}}>
+    <span style={{color:C.dim}}>{l}</span><span style={{color:c||C.textDim,fontWeight:700}}>{v}</span></span>);
+  const detail=[
+    brief&&brief.tmo?["TMO",brief.tmo,C.dim]:null,
+    brief&&brief.two?["TWO",brief.two,C.bolt]:null,
+    brief&&brief.tdo?["TDO",brief.tdo,C.ice]:null,
+    ds.opens&&ds.opens.nyo?["NYO",ds.opens.nyo,C.ice]:null,
+    brief&&brief.spyFlip?["SPY FLIP",brief.spyFlip,C.textDim]:null,
+    brief&&brief.spyPut?["SPY PW",brief.spyPut,C.loss]:null,
+    brief&&brief.spyCall?["SPY CW",brief.spyCall,C.win]:null,
+  ].filter(Boolean);
+  return(<div style={{background:`linear-gradient(90deg,${rg.color}12,transparent 40%),${C.panel}`,
+    border:`1px solid ${C.border}`,borderLeft:`3px solid ${rg.color}`,borderRadius:10,
+    padding:"8px 13px",marginBottom:16,fontFamily:mono,fontSize:10,letterSpacing:"0.05em"}}>
+    <div style={{display:"flex",gap:14,alignItems:"center",overflowX:"auto",scrollbarWidth:"none"}}>
+      <span style={{color:rg.color,fontWeight:700,whiteSpace:"nowrap",textShadow:`0 0 12px ${rg.color}55`}}>◉ {brief?"SPY "+rg.short:"NO BRIEF"}</span>
+      {ds.stack&&ds.stack.dirBias?seg(ds.stack.full?"STACK ◆":"WEEKLY",
+        ds.stack.dirBias==="short"?"HUNT SHORTS":"HUNT LONGS",
+        ds.stack.dirBias==="short"?C.loss:C.win):ds.stack?seg("STACK","MIXED",C.bolt):null}
+      {ds.qt?seg("QT",`${ds.qt.quarter.split(" · ")[0]} ${ds.qt.window}`,
+        ds.qt.window==="PRIME"?C.win:ds.qt.window==="SWEEP"?C.bolt:C.loss):null}
+      {ds.nextNews?seg("NEWS",`${ds.nextNews.name} ${ds.nextNews.phase==="pre"?"IN "+Math.ceil(ds.nextNews.ms/60000)+"M":"SETTLING"}`,C.warn):null}
+      {dirDef
+        ?seg("CONTRACT",`${dirDef.l.split(" — ")[0]} · ${ds.trades.length}/${brief.maxTrades||"∞"}`,dirDef.color)
+        :seg("CONTRACT","UNSEALED",C.bolt)}
+      {seg("P&L",money(ds.dayPnl),pnlC)}
+      <span style={{display:"inline-flex",gap:4,alignItems:"center"}}>
+        <span style={{color:C.dim}}>BRK</span>
+        {[0,1].map(i=>(<span key={i} style={{width:7,height:7,borderRadius:"50%",
+          background:ds.consec>i?C.loss:C.faint,border:`1px solid ${ds.consec>i?C.loss:C.border}`,
+          boxShadow:ds.consec>i?`0 0 8px ${C.loss}`:"none"}}/>))}
+      </span>
+      {detail.length>0&&<button onClick={()=>setOpen(!open)} style={{background:"transparent",border:"none",
+        color:C.dim,fontFamily:mono,fontSize:10,cursor:"pointer",padding:"0 2px",marginLeft:"auto"}}>{open?"▾":"▸"}</button>}
+    </div>
+    {open&&detail.length>0&&(<div style={{display:"flex",gap:14,alignItems:"center",overflowX:"auto",
+      scrollbarWidth:"none",marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.border}`}}>
+      {detail.map(([l,v,c])=>seg(l,v,c))}
+    </div>)}
+  </div>);
+}
+
+/* ════ MODE 1 · BRIEF — the 90-second morning ════ */
+function BriefMode({settings,prefill,onSeal}){
+  const [b,setB]=useState({regime:"neg",spyFlip:"",spyCall:"",spyPut:"",spySpot:"",spot:"",
+    tmo:(prefill&&prefill.tmo)||"",tdo:"",two:(prefill&&prefill.two)||"",
+    fourHClear:null,weeklyAligned:null,direction:"either",maxTrades:String(settings.maxTrades),
+    maxLoss:String(settings.maxDailyLoss),declaration:""});
+  const set=(k,v)=>setB(p=>({...p,[k]:v}));
+  const rg=regimeOf(b.regime);
+  const ready=b.declaration.trim().length>=8&&b.fourHClear!==null&&b.weeklyAligned!==null;
+  const yn=(k)=>(<div style={{display:"flex",gap:7}}>
+    <Pill sm color={C.win} active={b[k]===true} onClick={()=>set(k,true)}>YES</Pill>
+    <Pill sm color={C.loss} active={b[k]===false} onClick={()=>set(k,false)}>NO</Pill></div>);
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <Panel accent={C.bolt}>
+      <Eyebrow color={C.bolt}><Bolt size={12}/>MORNING BRIEF — SEALED BEFORE THE OPEN</Eyebrow>
+      <div style={{height:12}}/>
+      <Eyebrow>01 · REGIME — SPY GEX</Eyebrow>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,margin:"10px 0 6px"}}>
+        {REGIMES.map(r=>(<button key={r.v} onClick={()=>set("regime",r.v)} style={{
+          background:b.regime===r.v?`${r.color}14`:C.faint,border:`1px solid ${b.regime===r.v?r.color:C.border}`,
+          borderRadius:10,padding:"11px 6px",cursor:"pointer",boxShadow:b.regime===r.v?`0 0 18px ${r.color}2E`:"none"}}>
+          <div style={{fontFamily:disp,fontSize:11,fontWeight:700,letterSpacing:"0.08em",color:b.regime===r.v?r.color:C.muted}}>{r.short}</div>
+          <div style={{fontFamily:mono,fontSize:8,color:C.dim,marginTop:3,letterSpacing:"0.06em"}}>{r.env}</div></button>))}
+      </div>
+      <div style={{fontFamily:sans,fontSize:11,color:rg.color,lineHeight:1.5,marginBottom:14,opacity:.9}}>{rg.note}</div>
+      <Eyebrow>02 · THE OPENS — NQ</Eyebrow>
+      <div style={{height:10}}/>
+      <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:14}}>
+        <Field label="SPY GAMMA FLIP"><Input numeric value={b.spyFlip} onChange={v=>set("spyFlip",v)} placeholder="687"/></Field>
+        <Field label="SPY CALL WALL"><Input numeric value={b.spyCall} onChange={v=>set("spyCall",v)} placeholder="695"/></Field>
+        <Field label="SPY PUT WALL"><Input numeric value={b.spyPut} onChange={v=>set("spyPut",v)} placeholder="680"/></Field>
+        <Field label="SPY SPOT"><Input numeric value={b.spySpot} onChange={v=>set("spySpot",v)} placeholder="685"/></Field>
+      </div>
+      <div style={{display:"flex",gap:9,flexWrap:"wrap",marginBottom:16}}>
+        <Field label="TRUE MONTH OPEN · CONTEXT ONLY"><Input numeric value={b.tmo} onChange={v=>set("tmo",v)} placeholder="TMO"/></Field>
+        <Field label="TRUE WEEK OPEN · WEIGHTED"><Input numeric value={b.two} onChange={v=>set("two",v)} placeholder="TWO"/></Field>
+        <Field label="TRUE DAY OPEN · ENTRY"><Input numeric value={b.tdo} onChange={v=>set("tdo",v)} placeholder="TDO"/></Field>
+        <Field label="NQ MARK"><Input numeric value={b.spot} onChange={v=>set("spot",v)} placeholder="current"/></Field>
+      </div>
+      <div style={{fontFamily:mono,fontSize:8.5,color:C.dim,letterSpacing:"0.06em",marginBottom:12}}>
+        {prefill&&(prefill.tmo||prefill.two)?"TMO / TWO CARRIED FORWARD · ":""}NYO STAMPS INTRADAY — LEVELS</div>
+      <div style={{fontFamily:mono,fontSize:9,color:C.ice,letterSpacing:"0.08em",lineHeight:1.7,marginBottom:12,
+        border:`1px solid ${C.border}`,background:C.faint,borderRadius:9,padding:"9px 12px"}}>
+        WEEKLY OPEN SETS THE SIDE — ABOVE = PREMIUM/SHORTS, BELOW = DISCOUNT/LONGS. TMO IS CONTEXT ONLY — LONGS ABOVE MONTHLY ARE FINE IF THE WEEK AND ENTRY PAIR AGREE.
+        {(()=>{const g=pdGauge(b.spot,b.tdo,b.two);return g&&g.dirBias?(
+          <div style={{marginTop:6,color:g.dirBias==="short"?C.loss:C.win,fontWeight:700}}>
+            NOW: {g.label} — {g.dirBias==="short"?"SHORTS":"LONGS"} FAVORED</div>):null;})()}
+      </div>
+      <Eyebrow>03 · STRUCTURE</Eyebrow>
+      <div style={{height:10}}/>
+      <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:16}}>
+        <Field label="4H CLEAR DIRECTION (NOT CHOPPY)?">{yn("fourHClear")}</Field>
+        <Field label="WEEKLY ALIGNED WITH 4H?">{yn("weeklyAligned")}</Field>
+      </div>
+      {b.fourHClear===false&&(<div style={{fontFamily:mono,fontSize:10,color:C.warn,letterSpacing:"0.08em",
+        border:`1px solid ${C.warn}44`,background:`${C.warn}0D`,borderRadius:9,padding:"9px 12px",marginBottom:14}}>
+        4H CHOPPY — OBSERVATION DAY. THE GATE WILL OPEN IN WATCH-ONLY MODE.</div>)}
+      <Eyebrow>04 · THE CONTRACT — TODAY I AM ONLY LOOKING FOR</Eyebrow>
+      <div style={{display:"flex",gap:7,flexWrap:"wrap",margin:"10px 0 16px"}}>
+        {DIRS.map(d=>(<Pill key={d.v} color={d.color} active={b.direction===d.v} onClick={()=>set("direction",d.v)}>{d.l}</Pill>))}
+      </div>
+      <div style={{display:"flex",gap:9,marginBottom:14}}>
+        <Field label="MAX TRADES"><Input numeric value={b.maxTrades} onChange={v=>set("maxTrades",v.replace(/[^0-9]/g,""))}/></Field>
+        <Field label="MAX DAILY LOSS ($)"><Input numeric value={b.maxLoss} onChange={v=>set("maxLoss",v.replace(/[^0-9]/g,""))}/></Field>
+      </div>
+      <Field label="THE DECLARATION — TYPE IT. TYPING IT IS THE POINT." color={C.bolt}>
+        <Input rows={2} value={b.declaration} onChange={v=>set("declaration",v)}
+          placeholder='"Shorts only into the put wall. Two trades max. Nothing at the flip."'/></Field>
+      <div style={{height:14}}/>
+      <Cta disabled={!ready} onClick={()=>onSeal({...b,maxTrades:parseInt(b.maxTrades||"0",10),
+        maxLoss:parseFloat(b.maxLoss||"0")})}>◆ SEAL THE CONTRACT</Cta>
+      {!ready&&<div style={{fontFamily:mono,fontSize:9,color:C.dim,textAlign:"center",marginTop:8,letterSpacing:"0.08em"}}>
+        DECLARATION + BOTH STRUCTURE ANSWERS REQUIRED</div>}
+    </Panel>
+  </div>);
+}
+
+/* ════ MODE 2 · HUNT — THE GATE ════ */
+function GateStage({def,armed,isNext,locked,onArm,brief}){
+  const [opt,setOpt]=useState(def.opts[0]||"");
+  const [price,setPrice]=useState("");
+  const on=!!armed;
+  const c=on?C.bolt:isNext&&!locked?C.powderHi:C.dim;
+  return(<div style={{display:"flex",gap:12,position:"relative"}}>
+    {/* bolt rail node */}
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:26,flexShrink:0}}>
+      <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+        background:on?`${C.bolt}1A`:C.faint,border:`2px solid ${c}`,zIndex:1,
+        boxShadow:on?`0 0 16px ${C.bolt}66`:"none",animation:on?"armPulse .4s ease":"none"}}>
+        {on?<Bolt size={12} glow/>:<span style={{fontFamily:mono,fontSize:9,color:c,fontWeight:700}}>{def.n}</span>}
+      </div>
+      <div style={{flex:1,width:2,background:on?`linear-gradient(180deg,${C.bolt},${C.powder})`:C.border,
+        boxShadow:on?`0 0 8px ${C.bolt}55`:"none",minHeight:14}}/>
+    </div>
+    <div style={{flex:1,paddingBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8}}>
+        <div style={{fontFamily:disp,fontSize:12.5,fontWeight:700,letterSpacing:"0.1em",color:on?C.bolt:isNext&&!locked?C.text:C.dim}}>{def.title}</div>
+        {on&&<div style={{fontFamily:mono,fontSize:9,color:C.muted}}>{fmtT(armed.ts)}{armed.price?` · ${armed.price}`:""}</div>}
+      </div>
+      <div style={{fontFamily:sans,fontSize:11,color:on?C.textDim:C.muted,lineHeight:1.5,marginTop:2}}>
+        {on?`${armed.opt||"Armed"}${armed.note?" — "+armed.note:""}`:def.sub}</div>
+      {isNext&&!locked&&!on&&(<div style={{marginTop:9,display:"flex",flexDirection:"column",gap:8}}>
+        {def.opts.length>0&&(<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {def.opts.map(o=>(<Pill key={o} sm color={C.powderHi} active={opt===o} onClick={()=>setOpt(o)}>{o}</Pill>))}</div>)}
+        <div style={{display:"flex",gap:8}}>
+          {def.needPrice&&<Input numeric value={price} onChange={setPrice} placeholder={def.k==="tdo"?`price vs TDO ${brief.tdo||""}`:"price"} style={{maxWidth:150,padding:"9px 11px"}}/>}
+          <button onClick={()=>onArm({stage:def.k,opt,price})} style={{padding:"9px 18px",border:"none",borderRadius:9,
+            cursor:"pointer",fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+            background:`linear-gradient(135deg,${C.powderHi},${C.powder})`,color:"#04101F",
+            boxShadow:`0 2px 16px ${C.powder}55`}}>ARM ▸</button>
+        </div></div>)}
+    </div>
+  </div>);
+}
+function HuntMode({ds,settings,clock,onOpenGate,onArm,onArmPlan,onDecide,onEndSession}){
+  const brief=ds.brief,gate=ds.gate;
+  const [plan,setPlan]=useState({dir:brief.direction==="short"?"short":"long",entry:"",stop:"",target:""});
+  const [passing,setPassing]=useState(false);
+  const now=clock.getTime();
+  const cooldownLeft=Math.max(0,ds.cooldownUntil-now);
+  const watchOnly=brief.direction==="none"||brief.fourHClear===false;
+  const limitReached=brief.maxTrades>0&&ds.trades.length>=brief.maxTrades;
+  const armedCount=gate?Object.keys(gate.stages).length:0;
+  const entryStack=pdStackOf(plan.entry||ds.mark,ds.opens)||ds.stack;
+  const tfcVals=gate&&gate.stages.tfc?gate.stages.tfc.tfc:null;
+  const {q,why}=qualityOf(brief,gate,plan.dir,{stack:entryStack,tfc:tfcVals,qt:ds.qt,newsSoon:!!ds.nextNews});
+  const rr=rrOf(plan.entry,plan.stop,plan.target);
+  const sz=sizerOf(plan.entry,plan.stop,settings.riskPerTrade,settings.ptValue);
+  const stageTfc=gate&&gate.stages.tfc,stageBrk=gate&&gate.stages.tdo,stagePlan=gate&&gate.stages.rr;
+  const fullArm=armedCount>=7;
+  const unlocked=fullArm&&q>=settings.qualityFloor&&!watchOnly&&cooldownLeft<=0&&!limitReached;
+  const wallWarn=(()=>{
+    if(entryStack&&entryStack.macroSide&&entryStack.macroSide!=="mixed"){
+      const want=plan.dir==="short"?"premium":"discount";
+      if(entryStack.macroSide!==want)
+        return`Entry fights the WEEKLY OPEN — TWO sits in ${entryStack.macroSide.toUpperCase()}, hunting ${entryStack.macroSide==="premium"?"SHORTS":"LONGS"}. The week outranks the entry.`;}
+    if(brief.regime==="pos")return`Positive SPY GEX — dealers dampen. Moves fade; treat the true open as a magnet and first target.`;
+    return null;})();
+  const canArm6=rr!==null&&rr>=2&&plan.entry&&plan.stop&&plan.target&&sz&&sz.contracts>=1;
+  const [ctsOverride,setCtsOverride]=useState(null);
+  const [whyOpen,setWhyOpen]=useState(false);
+  if(!gate){
+    return(<div style={{animation:"rise .35s ease both"}}>
+      {cooldownLeft>0&&<CooldownBar left={cooldownLeft}/>}
+      <StackBanner stack={ds.stack} qt={ds.qt} verdict={ds.verdict}/><NewsBanner news={ds.nextNews}/>
+      <Panel accent={C.powder} style={{textAlign:"center",padding:"44px 20px"}}>
+        <Eyebrow color={C.powderHi} ><span style={{margin:"0 auto"}}>HUNT MODE</span></Eyebrow>
+        <div style={{fontFamily:disp,fontSize:20,fontWeight:700,letterSpacing:"0.12em",color:C.white,margin:"16px 0 6px",lineHeight:1.7}}>
+          LIQUIDITY IS BUILDING.<br/>THE SWEEP IS COMING.<br/>
+          <span style={{color:C.bolt,textShadow:`0 0 24px ${C.bolt}88`}}>WAIT.</span></div>
+        <div style={{height:20}}/>
+        <div style={{display:"flex",gap:10,maxWidth:380,margin:"0 auto"}}>
+          {ds.verdict&&ds.verdict.code==="STAND_DOWN"
+            ?<Cta ghost color={C.loss} disabled={limitReached} onClick={()=>onOpenGate(true)}>OPEN ANYWAY — LOGGED AS FORCED</Cta>
+            :<Cta color={C.powderHi} disabled={limitReached} onClick={()=>onOpenGate(false)}>◆ OPEN A GATE</Cta>}
+        </div>
+        {ds.verdict&&ds.verdict.code==="STAND_DOWN"&&<div style={{fontFamily:mono,fontSize:9,color:C.loss,
+          letterSpacing:"0.08em",marginTop:10}}>FORCING IT BECOMES A LEDGER EVENT</div>}
+        {limitReached&&<div style={{fontFamily:mono,fontSize:9,color:C.loss,letterSpacing:"0.1em",marginTop:10}}>CONTRACT LIMIT REACHED — {ds.trades.length}/{brief.maxTrades} TRADES</div>}
+        <button onClick={onEndSession} style={{marginTop:22,background:"transparent",border:"none",color:C.dim,
+          fontFamily:mono,fontSize:10,letterSpacing:"0.12em",cursor:"pointer"}}>END SESSION → DEBRIEF</button>
+      </Panel>
+      <TodayStream ds={ds}/>
+    </div>);
+  }
+  return(<div style={{animation:"rise .35s ease both"}}>
+    {cooldownLeft>0&&<CooldownBar left={cooldownLeft}/>}
+    <StackBanner stack={entryStack} qt={ds.qt} verdict={ds.verdict}/><NewsBanner news={ds.nextNews}/>
+    <Panel accent={C.bolt}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <Eyebrow color={C.bolt}><Bolt size={12}/>THE GATE</Eyebrow>
+        <div style={{fontFamily:mono,fontSize:11,color:C.textDim}}>
+          <b style={{color:C.bolt,fontSize:14}}>{armedCount}</b>/7 · Q <b style={{color:q>=settings.qualityFloor?C.win:C.loss,fontSize:14}}>{q}</b> LIVE</div>
+      </div>
+      {GATE_STAGES.slice(0,4).map((s,i)=>(<GateStage key={s.k} def={s} brief={brief}
+        armed={gate.stages[s.k]} locked={watchOnly}
+        isNext={i===armedCount} onArm={onArm}/>))}
+      {/* Stage 05 — TFC taps */}
+      <TfcStage def={GATE_STAGES[4]} armed={stageTfc} isNext={armedCount===4} locked={watchOnly}
+        dir={plan.dir} onArm={onArm}/>
+      <GaugeStage def={GATE_STAGES[5]} armed={stageBrk} isNext={armedCount===5} locked={watchOnly}
+        dir={plan.dir} opens={ds.opens} onArm={onArm}/>
+      {/* Stage 07 — plan + R:R */}
+      <div style={{display:"flex",gap:12}}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:26,flexShrink:0}}>
+          <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+            background:stagePlan?`${C.bolt}1A`:C.faint,border:`2px solid ${stagePlan?C.bolt:armedCount===6?C.powderHi:C.dim}`,
+            boxShadow:stagePlan?`0 0 16px ${C.bolt}66`:"none"}}>
+            {stagePlan?<Bolt size={12} glow/>:<span style={{fontFamily:mono,fontSize:9,color:armedCount===6?C.powderHi:C.dim,fontWeight:700}}>07</span>}</div>
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:disp,fontSize:12.5,fontWeight:700,letterSpacing:"0.1em",
+            color:stagePlan?C.bolt:armedCount===6?C.text:C.dim}}>{GATE_STAGES[6].title}</div>
+          <div style={{fontFamily:sans,fontSize:11,color:C.muted,lineHeight:1.5,margin:"2px 0 9px"}}>{GATE_STAGES[6].sub}</div>
+          {(armedCount===6||stagePlan)&&(<div>
+            <div style={{display:"flex",gap:7,marginBottom:9}}>
+              {[{v:"long",l:"LONG",c:C.win},{v:"short",l:"SHORT",c:C.loss}].map(d=>(
+                <Pill key={d.v} sm color={d.c} active={plan.dir===d.v} onClick={()=>!stagePlan&&setPlan(p=>({...p,dir:d.v}))}>{d.l}</Pill>))}
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+              <Field label="ENTRY"><Input numeric value={plan.entry} onChange={v=>setPlan(p=>({...p,entry:v}))} placeholder="entry"/></Field>
+              <Field label="STOP LOSS"><Input numeric value={plan.stop} onChange={v=>setPlan(p=>({...p,stop:v}))} placeholder="stop"/></Field>
+              <Field label="EXIT"><Input numeric value={plan.target} onChange={v=>setPlan(p=>({...p,target:v}))} placeholder="target"/></Field>
+            </div>
+            {sz&&(()=>{
+              const maxCts=sz.contracts;
+              const chosen=maxCts<1?0:(ctsOverride!=null?Math.max(1,Math.min(ctsOverride,maxCts)):maxCts);
+              const targetPts=plan.target&&plan.entry?Math.abs(roundTick(plan.target)-roundTick(plan.entry)):0;
+              const totalRisk=chosen*sz.perContract;
+              const reward=chosen*targetPts*settings.ptValue;
+              const step=d=>setCtsOverride(Math.max(1,Math.min((ctsOverride!=null?ctsOverride:maxCts)+d,Math.max(1,maxCts))));
+              return(<div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 12px",marginBottom:9}}>
+                <div style={{fontFamily:mono,fontSize:8.5,color:C.ice,letterSpacing:"0.2em",marginBottom:9}}>◆ MNQ RISK / REWARD</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:9}}>
+                  <StatChip label="STOP" value={`${sz.stopPts.toFixed(2)} PTS`} color={C.loss}/>
+                  <StatChip label="TARGET" value={`${targetPts.toFixed(2)} PTS`} color={C.win}/>
+                  <StatChip label="$/CT" value={`$${sz.perContract.toFixed(0)}`}/>
+                </div>
+                <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:9,flexWrap:"wrap"}}>
+                  <span style={{fontFamily:mono,fontSize:9,color:C.muted,letterSpacing:"0.12em"}}>CONTRACTS</span>
+                  <div style={{display:"flex",alignItems:"center",border:`1px solid ${C.border}`,borderRadius:9,overflow:"hidden"}}>
+                    <button onClick={()=>step(-1)} disabled={maxCts<1} style={{background:C.panel2,border:"none",color:C.textDim,fontFamily:mono,fontSize:15,padding:"7px 14px",cursor:"pointer"}}>−</button>
+                    <span style={{fontFamily:mono,fontSize:15,fontWeight:700,color:C.bolt,padding:"0 14px",minWidth:40,textAlign:"center"}}>{chosen}</span>
+                    <button onClick={()=>step(1)} disabled={maxCts<1} style={{background:C.panel2,border:"none",color:C.textDim,fontFamily:mono,fontSize:15,padding:"7px 14px",cursor:"pointer"}}>+</button>
+                  </div>
+                  <span style={{fontFamily:mono,fontSize:8.5,color:C.dim,letterSpacing:"0.06em"}}>MAX {Math.max(0,maxCts)} @ ${settings.riskPerTrade} CAP</span>
+                </div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <StatChip label="RISK" value={chosen?`$${totalRisk.toFixed(0)}`:"—"} color={C.loss}/>
+                  <StatChip label="REWARD" value={chosen?money(reward):"—"} color={C.win}/>
+                  <StatChip label="R : R" value={rr?`1 : ${rr.toFixed(2)}`:"—"} color={rr>=2?C.win:C.loss}/>
+                </div>
+                {maxCts<1&&<div style={{fontFamily:mono,fontSize:9,color:C.loss,letterSpacing:"0.06em",marginTop:8}}>■ STOP TOO WIDE — 1 MNQ = ${sz.perContract.toFixed(0)} &gt; ${settings.riskPerTrade} CAP</div>}
+              </div>);})()}
+            {wallWarn&&<div style={{fontFamily:mono,fontSize:9.5,color:C.warn,letterSpacing:"0.04em",lineHeight:1.5,
+              border:`1px solid ${C.warn}44`,background:`${C.warn}0D`,borderRadius:8,padding:"8px 10px",marginBottom:9}}>⚠ {wallWarn}</div>}
+            {!stagePlan&&<button onClick={()=>{if(!canArm6)return;
+              const chosen=ctsOverride!=null?Math.max(1,Math.min(ctsOverride,sz.contracts)):sz.contracts;
+              const risk=chosen*sz.perContract;
+              onArmPlan({stage:"rr",opt:`1:${rr.toFixed(1)} · ${chosen} MNQ · $${risk.toFixed(0)}`,plan:{...plan,rr,contracts:chosen,actualRisk:risk}});}}
+              disabled={!canArm6}
+              style={{padding:"9px 18px",border:"none",borderRadius:9,cursor:canArm6?"pointer":"not-allowed",
+              fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+              background:canArm6?`linear-gradient(135deg,${C.powderHi},${C.powder})`:C.faint,
+              color:canArm6?"#04101F":C.dim}}>{canArm6?"ARM FINAL STAGE ▸":"NEEDS 1:2 MINIMUM"}</button>}
+          </div>)}
+        </div>
+      </div>
+      {/* THE LOCK */}
+      <div style={{marginTop:16,borderTop:`1px dashed ${C.border}`,paddingTop:14}}>
+        {!unlocked&&(<div style={{fontFamily:mono,fontSize:9.5,color:C.dim,letterSpacing:"0.14em",textAlign:"center",marginBottom:12}}>
+          ░░ ENTRY LOCKED — {watchOnly?"OBSERVATION DAY":cooldownLeft>0?"COOLDOWN ACTIVE":limitReached?"CONTRACT LIMIT":!fullArm?`${7-armedCount} STAGE${7-armedCount>1?"S":""} REMAIN`:`QUALITY ${q} < FLOOR ${settings.qualityFloor}`} ░░</div>)}
+        <div style={{display:"flex",gap:10}}>
+          <Cta disabled={!unlocked} onClick={()=>onDecide("TAKE",{plan:gate.plan||{...plan,rr,contracts:sz?sz.contracts:0},quality:q})}>◆ TAKE — {gate.plan?gate.plan.contracts:sz&&sz.contracts>=1?sz.contracts:"—"} MNQ{(gate.plan||sz)?` · $${((gate.plan?gate.plan.actualRisk:0)||(sz?sz.actualRisk:0)).toFixed(0)} RISK`:""}</Cta>
+          <div style={{flex:1}}>
+            {!passing?<Cta ghost color={C.win} onClick={()=>setPassing(true)}>◇ PASS</Cta>
+            :(<div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              {PASS_REASONS.map(r=>(<Pill key={r} sm color={C.win} onClick={()=>{onDecide("PASS",{reason:r,quality:q,armed:armedCount});setPassing(false);}}>{r}</Pill>))}
+            </div>)}
+          </div>
+        </div>
+        <button onClick={()=>onDecide("EXPIRED",{quality:q,armed:armedCount})} style={{width:"100%",marginTop:10,background:"transparent",
+          border:"none",color:C.dim,fontFamily:mono,fontSize:9,letterSpacing:"0.14em",cursor:"pointer"}}>ABANDON GATE — LOG AS EXPIRED</button>
+      </div>
+    </Panel>
+    <Panel style={{padding:"12px 18px"}}>
+      <button onClick={()=>setWhyOpen(!whyOpen)} style={{width:"100%",background:"transparent",border:"none",
+        cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:0}}>
+        <Eyebrow>QUALITY {q} — WHY</Eyebrow>
+        <span style={{fontFamily:mono,fontSize:10,color:C.dim}}>{whyOpen?"▾":"▸"}</span></button>
+      {whyOpen&&<div style={{marginTop:10,display:"flex",flexDirection:"column",gap:5}}>
+        {why.map((w,i)=>(<div key={i} style={{fontFamily:mono,fontSize:10.5,color:C.textDim}}>▸ {w}</div>))}</div>}
+    </Panel>
+    <TodayStream ds={ds}/>
+  </div>);
+}
+function CooldownBar({left}){
+  const m=Math.floor(left/60000),s=String(Math.floor((left%60000)/1000)).padStart(2,"0");
+  return(<div style={{background:`${C.loss}10`,border:`1px solid ${C.loss}55`,borderRadius:11,
+    padding:"11px 14px",marginBottom:14,textAlign:"center",animation:"rise .3s ease both"}}>
+    <div style={{fontFamily:disp,fontSize:13,fontWeight:700,color:C.loss,letterSpacing:"0.12em"}}>15-MINUTE BREAK · {m}:{s}</div>
+    <div style={{fontFamily:sans,fontSize:11,color:C.muted,marginTop:3}}>Valid setup, or did I deviate? The gate is locked until the timer ends.</div></div>);
+}
+function StackBanner({stack,qt,verdict}){
+  if(!verdict)return null;
+  return(<div style={{border:`1px solid ${verdict.color}55`,background:`${verdict.color}0D`,
+    borderRadius:12,padding:"12px 14px",marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"baseline"}}>
+      <span style={{fontFamily:disp,fontSize:13,fontWeight:700,letterSpacing:"0.12em",color:verdict.color,
+        textShadow:`0 0 16px ${verdict.color}55`}}>◆ {verdict.label}</span>
+      {qt&&<span style={{fontFamily:mono,fontSize:9,color:C.muted,letterSpacing:"0.06em"}}>
+        {qt.quarter} · {qt.role} · {qt.micro} · <b style={{color:qt.window==="PRIME"?C.win:qt.window==="SWEEP"?C.bolt:C.loss}}>{qt.window}</b></span>}
+    </div>
+    {stack&&(<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:9}}>
+      {stack.rows.map(r=>(<span key={r.k} style={{fontFamily:mono,fontSize:9,letterSpacing:"0.06em",
+        border:`1px solid ${r.side==="premium"?C.loss:C.win}55`,color:r.side==="premium"?C.loss:C.win,
+        background:`${r.side==="premium"?C.loss:C.win}0A`,borderRadius:6,padding:"3px 8px"}}>
+        {r.short} {r.value} {r.side==="premium"?"▲P":"▼D"}</span>))}
+      <span style={{fontFamily:mono,fontSize:8,color:C.dim,letterSpacing:"0.1em",alignSelf:"center"}}>WEEKLY→ENTRY</span>
+    </div>)}
+    <div style={{fontFamily:sans,fontSize:10.5,color:C.muted,marginTop:8,lineHeight:1.5}}>{verdict.note}</div>
+  </div>);
+}
+const TFC_CYCLE=[null,"2u","2d","1g","1r"];
+const tfcGlyph=v=>v==="2u"?"▲":v==="2d"?"▼":v==="1g"?"◇▲":v==="1r"?"◇▼":"—";
+const tfcColor=v=>v==="2u"?C.win:v==="2d"?C.loss:v==="1g"?"#4FD190":v==="1r"?"#FF7A87":C.dim;
+const tfcHint=v=>v==="2u"?"2U — full green":v==="2d"?"2D — full red":v==="1g"?"1 · inside, leaning green":v==="1r"?"1 · inside, leaning red":"tap to set";
+const tierColor=t=>t==="ELITE"?C.win:t==="HIGH"?C.powderHi:t==="MODERATE"?C.bolt:C.loss;
+function TfcStage({def,armed,isNext,locked,dir,onArm}){
+  const [tf,setTf]=useState({h1:null,h4:null,d:null,w:null,m:null,q:null});
+  const on=!!armed;const c=on?C.bolt:isNext&&!locked?C.powderHi:C.dim;
+  const al=alignmentOf(tf,dir);
+  const ready=al&&al.tier!=="INCOMPLETE";
+  const cycle=k=>setTf(p=>({...p,[k]:TFC_CYCLE[(TFC_CYCLE.indexOf(p[k])+1)%TFC_CYCLE.length]||TFC_CYCLE[1]}));
+  const bar=(vals,tappable)=>(<div style={{display:"flex",gap:4}}>
+    {TFC_FRAMES.map(f=>{const v=vals[f.k];
+      return(<button key={f.k} onClick={()=>tappable&&cycle(f.k)} disabled={!tappable} title={tfcHint(v)}
+        style={{flex:1,minWidth:38,background:v?`${tfcColor(v)}12`:C.faint,
+        border:`1px solid ${v?`${tfcColor(v)}66`:C.border}`,borderStyle:(v==="1g"||v==="1r")?"dashed":"solid",
+        borderRadius:7,padding:"7px 2px",cursor:tappable?"pointer":"default",textAlign:"center"}}>
+        <div style={{fontFamily:mono,fontSize:8,color:C.muted,letterSpacing:"0.1em",marginBottom:2}}>{f.l}</div>
+        <div style={{fontFamily:mono,fontSize:(v==="1g"||v==="1r")?10:13,fontWeight:700,lineHeight:"14px",color:tfcColor(v)}}>{tfcGlyph(v)}</div>
+      </button>);})}</div>);
+  return(<div style={{display:"flex",gap:12}}>
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:26,flexShrink:0}}>
+      <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+        background:on?`${C.bolt}1A`:C.faint,border:`2px solid ${c}`,zIndex:1,
+        boxShadow:on?`0 0 16px ${C.bolt}66`:"none"}}>
+        {on?<Bolt size={12} glow/>:<span style={{fontFamily:mono,fontSize:9,color:c,fontWeight:700}}>{def.n}</span>}</div>
+      <div style={{flex:1,width:2,background:on?`linear-gradient(180deg,${C.bolt},${C.powder})`:C.border,minHeight:14}}/>
+    </div>
+    <div style={{flex:1,paddingBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+        <div style={{fontFamily:disp,fontSize:12.5,fontWeight:700,letterSpacing:"0.1em",color:on?C.bolt:isNext&&!locked?C.text:C.dim}}>{def.title}</div>
+        {(on||ready)&&(()=>{const a=on?alignmentOf(armed.tfc,dir):al;
+          return a&&a.tier!=="INCOMPLETE"?(<span style={{fontFamily:mono,fontSize:9.5,fontWeight:700,
+            letterSpacing:"0.1em",color:tierColor(a.tier)}}>{a.tier} · {a.effWith}/6</span>):null;})()}
+      </div>
+      {on
+        ?(<div style={{marginTop:8}}>{bar(armed.tfc,false)}
+          <div style={{fontFamily:sans,fontSize:10.5,color:C.textDim,marginTop:6}}>{armed.opt}</div></div>)
+        :(<div style={{fontFamily:sans,fontSize:11,color:C.muted,lineHeight:1.5,marginTop:2}}>{def.sub}</div>)}
+      {isNext&&!locked&&!on&&(<div style={{marginTop:9,display:"flex",flexDirection:"column",gap:8}}>
+        {bar(tf,true)}
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <button onClick={()=>{if(!ready)return;
+            const opt=al.tier==="ELITE"?"FULL FTFC — HIGHEST PROBABILITY"
+              :al.tier==="HIGH"?"STRONG CONTINUITY"
+              :al.tier==="MODERATE"?"PARTIAL CONTINUITY — WEIGHED IN QUALITY"
+              :"CONTINUITY NOT THERE — WEIGHED HEAVILY AGAINST";
+            onArm({stage:"tfc",opt,tfc:{...tf},tier:al.tier});}}
+            disabled={!ready}
+            style={{padding:"9px 18px",border:"none",borderRadius:9,cursor:ready?"pointer":"not-allowed",
+            fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+            background:ready?`linear-gradient(135deg,${C.powderHi},${C.powder})`:C.faint,
+            color:ready?"#04101F":C.dim}}>ARM FTFC ▸</button>
+          <span style={{fontFamily:mono,fontSize:8.5,color:C.dim,letterSpacing:"0.06em",lineHeight:1.6}}>
+            TAP TO CYCLE ▲ ▼ ◇▲ ◇▼ — DIAMOND = INSIDE BAR, LEANING GREEN OR RED OFF THE PRIOR OPEN/CLOSE</span></div>
+      </div>)}
+    </div></div>);
+}
+function GaugeStage({def,armed,isNext,locked,dir,opens,onArm}){
+  const [price,setPrice]=useState("");
+  const on=!!armed;const c=on?C.bolt:isNext&&!locked?C.powderHi:C.dim;
+  const g=price?pdStackOf(price,opens):null;
+  return(<div style={{display:"flex",gap:12}}>
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:26,flexShrink:0}}>
+      <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+        background:on?`${C.bolt}1A`:C.faint,border:`2px solid ${c}`,zIndex:1,
+        boxShadow:on?`0 0 16px ${C.bolt}66`:"none"}}>
+        {on?<Bolt size={12} glow/>:<span style={{fontFamily:mono,fontSize:9,color:c,fontWeight:700}}>{def.n}</span>}</div>
+      <div style={{flex:1,width:2,background:on?`linear-gradient(180deg,${C.bolt},${C.powder})`:C.border,minHeight:14}}/>
+    </div>
+    <div style={{flex:1,paddingBottom:14}}>
+      <div style={{fontFamily:disp,fontSize:12.5,fontWeight:700,letterSpacing:"0.1em",color:on?C.bolt:isNext&&!locked?C.text:C.dim}}>{def.title}</div>
+      <div style={{fontFamily:sans,fontSize:11,color:on?C.textDim:C.muted,lineHeight:1.5,marginTop:2}}>
+        {on?`${armed.opt}${armed.price?" @ "+armed.price:""}`:def.sub}</div>
+      {isNext&&!locked&&!on&&(<div style={{marginTop:9,display:"flex",flexDirection:"column",gap:8}}>
+        {g&&(<div style={{fontFamily:mono,fontSize:9.5,letterSpacing:"0.06em",
+          color:g.dirBias?(g.dirBias===dir?C.win:C.loss):C.bolt}}>
+          {g.label}{g.dirBias?` — ${g.dirBias===dir?dir.toUpperCase()+" ✓":"HUNTS "+g.dirBias.toUpperCase()+"S"}`:""}</div>)}
+        <div style={{display:"flex",gap:8}}>
+          <Input numeric value={price} onChange={setPrice} placeholder="entry-zone price" style={{maxWidth:160,padding:"9px 11px"}}/>
+          <button onClick={()=>{
+            const gg=pdStackOf(price,opens);
+            if(!gg)return alert("Enter a price.");
+            if(gg.dirBias&&gg.dirBias!==dir)
+              return alert(`${price} is ${gg.label} — that side hunts ${gg.dirBias.toUpperCase()}S. Not your trade.`);
+            onArm({stage:"tdo",opt:gg.dirBias?`${gg.label} — ${dir.toUpperCase()} ✓`:"Straddling the opens",price});}}
+            style={{padding:"9px 18px",border:"none",borderRadius:9,cursor:"pointer",
+            fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+            background:`linear-gradient(135deg,${C.powderHi},${C.powder})`,color:"#04101F"}}>ARM ▸</button>
+        </div></div>)}
+    </div></div>);
+}
+function NewsBanner({news}){
+  if(!news)return null;
+  return(<div style={{background:`${C.warn}0F`,border:`1px solid ${C.warn}55`,borderRadius:11,
+    padding:"9px 14px",marginBottom:14,fontFamily:mono,fontSize:10.5,color:C.warn,letterSpacing:"0.08em"}}>
+    ⚠ {news.name} {news.phase==="pre"?`IN ${Math.ceil(news.ms/60000)} MIN`:"SETTLING"} · Q −2</div>);
+}
+function TodayStream({ds}){
+  const [streamAll,setStreamAll]=useState(false);
+  const meta={BRIEF_SEALED:{c:C.powderHi,l:"SEALED"},GATE_OPEN:{c:C.ice,l:"GATE"},STAGE_ARMED:{c:C.bolt,l:"ARMED"},
+    DECISION:{c:C.bolt,l:"DECIDE"},TRADE_OPENED:{c:C.bolt,l:"ENTRY"},TRADE_CLOSED:{c:C.textDim,l:"EXIT"},
+    COOLDOWN_START:{c:C.loss,l:"COOLDN"},BREAKER_TRIP:{c:C.loss,l:"WALL"},BREAKER_OVERRIDE:{c:C.loss,l:"OVRRD"},
+    TRADE_RECONCILED:{c:C.ice,l:"SYNC"},TRADE_FLAGGED:{c:C.loss,l:"FLAG"},
+    GATE_FORCED:{c:C.loss,l:"FORCED"},NYO_SET:{c:C.ice,l:"NYO"},
+    STATE_CHECK:{c:C.ice,l:"STATE"},LOSS_REVIEWED:{c:C.powderHi,l:"REVIEW"},DEBRIEF_SIGNED:{c:C.win,l:"SIGNED"}};
+  const rows=ds.evs.filter(e=>meta[e.type]);
+  if(!rows.length)return null;
+  const noteOf=e=>{
+    if(e.type==="DECISION")return `${e.data.action}${e.data.reason?" — "+e.data.reason:""}${e.data.quality!=null?` · Q${e.data.quality}`:""}`;
+    if(e.type==="STAGE_ARMED")return `${e.data.stage.toUpperCase()} — ${e.data.opt||""}${e.data.price?" @ "+e.data.price:""}`;
+    if(e.type==="TRADE_OPENED")return `${e.data.dir.toUpperCase()} ${e.data.contracts}x @ ${e.data.entry}`;
+    if(e.type==="TRADE_CLOSED")return `${e.data.outcome.toUpperCase()} · ${money(e.data.pnl)} · ${(e.data.r||0).toFixed(2)}R${e.data.imported?" · IMPORTED":""}`;
+    if(e.type==="TRADE_RECONCILED")return e.data.confirmed?`Broker ✓ ${money(e.data.pnl)}`:`Calibrated ${money(e.data.pnl)} (Δ ${money(e.data.delta)})`;
+    if(e.type==="STATE_CHECK")return e.data.state;
+    if(e.type==="NYO_SET")return `@ ${e.data.price}`;
+    if(e.type==="GATE_FORCED")return "Against STAND DOWN";
+    return e.data&&e.data.note?e.data.note:e.data&&e.data.reason?e.data.reason:"";};
+  const all=[...rows].reverse();
+  const shown=streamAll?all:all.slice(0,5);
+  return(<Panel><Eyebrow>LEDGER</Eyebrow>
+    <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:10}}>
+      {shown.map((e,i)=>{const m=meta[e.type];
+        return(<div key={i} style={{display:"flex",gap:10,alignItems:"baseline",fontFamily:mono,fontSize:10.5}}>
+          <span style={{color:C.dim,flexShrink:0}}>{fmtT(e.ts)}</span>
+          <span style={{color:m.c,fontWeight:700,minWidth:56,flexShrink:0,letterSpacing:"0.06em"}}>{m.l}</span>
+          <span style={{color:C.muted,fontFamily:sans,fontSize:11,lineHeight:1.45}}>{noteOf(e)}</span></div>);})}
+    </div>
+    {all.length>5&&<button onClick={()=>setStreamAll(!streamAll)} style={{width:"100%",marginTop:10,
+      background:"transparent",border:"none",color:C.dim,fontFamily:mono,fontSize:9,
+      letterSpacing:"0.12em",cursor:"pointer"}}>{streamAll?"SHOW LESS ▴":`SHOW ALL ${all.length} ▸`}</button>}
+  </Panel>);
+}
+
+function ExecuteMode({ds,settings,onClose}){
+  const t=ds.openTrade;
+  const [mark,setMark]=useState("");
+  const [exit,setExit]=useState("");
+  const [state,setStateTap]=useState(null);
+  const risk=Math.abs(t.entry-t.stop)*t.contracts*settings.ptValue;
+  const liveR=mark?((parseFloat(mark)-t.entry)*(t.dir==="long"?1:-1)*t.contracts*settings.ptValue)/(risk||1):null;
+  const canClose=exit&&state;
+  const brief=ds.brief||{};
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <Panel accent={t.dir==="long"?C.win:C.loss}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <Eyebrow color={t.dir==="long"?C.win:C.loss}><Bolt size={12} color={t.dir==="long"?C.win:C.loss}/>LIVE — {t.dir.toUpperCase()} {t.contracts} {settings.instrument}</Eyebrow>
+        <span style={{fontFamily:mono,fontSize:10,color:C.muted}}>Q{t.quality} · {fmtT(t.openedAt)}</span></div>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <StatChip label="ENTRY" value={t.entry} color={C.white}/>
+        <StatChip label="STOP" value={t.stop} color={C.loss}/>
+        <StatChip label="TARGET" value={t.target} color={C.win}/>
+        <StatChip label={`RISK · ${t.contracts} MNQ`} value={money(-risk).replace("−","")} color={C.textDim}/>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:12,flexWrap:"wrap"}}>
+        <Field label="MARK"><Input numeric value={mark} onChange={setMark} placeholder="current price"/></Field>
+        <div style={{flex:1,minWidth:120,textAlign:"center",padding:"6px 0"}}>
+          <div style={{fontFamily:mono,fontSize:8,color:C.dim,letterSpacing:"0.18em",marginBottom:2}}>LIVE R</div>
+          <div style={{fontFamily:disp,fontSize:30,fontWeight:700,lineHeight:1,
+            color:liveR===null?C.dim:liveR>=0?C.win:C.loss,
+            textShadow:liveR===null?"none":`0 0 22px ${(liveR>=0?C.win:C.loss)}55`}}>
+            {liveR===null?"—":`${liveR>=0?"+":""}${liveR.toFixed(2)}R`}</div></div>
+      </div>
+      {(()=>{const g=pdStackOf(mark,ds.opens);return g&&g.dirBias?(
+        <div style={{fontFamily:mono,fontSize:9.5,letterSpacing:"0.06em",marginBottom:12,
+          color:g.dirBias===t.dir?C.win:C.warn}}>
+          {g.label} @ {g.mark} — {g.dirBias===t.dir?"WITH YOU":"AGAINST THE POSITION"}</div>):null;})()}
+      {brief.regime==="pos"&&(<div style={{fontFamily:mono,fontSize:9.5,color:C.warn,border:`1px solid ${C.warn}44`,
+        background:`${C.warn}0D`,borderRadius:8,padding:"8px 10px",marginBottom:12,letterSpacing:"0.04em"}}>
+        ⚠ POS GEX — MOVES FADE. THE OPEN IS A MAGNET.</div>)}
+      <div style={{borderTop:`1px dashed ${C.border}`,paddingTop:14}}>
+        <Eyebrow>CLOSE + STAMP</Eyebrow>
+        <div style={{display:"flex",gap:8,margin:"10px 0",flexWrap:"wrap"}}>
+          <Field label="EXIT PRICE"><Input numeric value={exit} onChange={setExit} placeholder="fill"/></Field>
+        </div>
+        <div style={{fontFamily:mono,fontSize:9,color:C.dim,letterSpacing:"0.14em",marginBottom:7}}>STATE — ONE TAP</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+          {STATES.map(x=>(<Pill key={x.v} sm color={C.ice} active={state===x.v} onClick={()=>setStateTap(x.v)}>{x.l}</Pill>))}
+        </div>
+        <Cta disabled={!canClose} onClick={()=>onClose({exit:parseFloat(exit),state})}>■ CLOSE + STAMP</Cta>
+      </div>
+    </Panel>
+    <TodayStream ds={ds}/>
+  </div>);
+}
+
+/* ════ MODE 4 · LOCKOUT — the circuit breaker as an operating mode ════ */
+function LockoutMode({ds,onReviewLoss,onOverride,onDebrief}){
+  const [arming,setArming]=useState(false);
+  const [typed,setTyped]=useState("");
+  const match=typed.trim()===OVERRIDE_SENTENCE;
+  const pending=ds.lockReviewNeeded;
+  return(<div style={{position:"fixed",inset:0,zIndex:100,background:"#05070EF5",backdropFilter:"blur(12px)",
+    display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
+    <div style={{maxWidth:470,width:"100%",background:`linear-gradient(180deg,${C.panel},${C.bg2})`,
+      border:`1px solid ${C.loss}55`,borderTop:`3px solid ${C.loss}`,borderRadius:16,padding:"26px 20px",
+      animation:"rise .35s ease both",margin:"auto"}}>
+      <div style={{textAlign:"center",marginBottom:16}}>
+        <div style={{fontFamily:mono,fontSize:10,color:C.loss,letterSpacing:"0.34em",marginBottom:12}}>■ LOCKOUT</div>
+        <div style={{fontFamily:disp,fontSize:22,fontWeight:700,color:C.white,letterSpacing:"0.06em"}}>DONE FOR THE DAY.</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+        {ds.reasons.map((r,i)=>(<div key={i} style={{display:"flex",gap:9,fontFamily:sans,fontSize:12.5,
+          color:C.textDim,lineHeight:1.55}}><span style={{color:C.loss,fontFamily:mono,flexShrink:0}}>▸</span>{r}</div>))}
+      </div>
+      {ds.brief&&(<div style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,padding:"11px 13px",marginBottom:16}}>
+        <div style={{fontFamily:mono,fontSize:8,color:C.dim,letterSpacing:"0.22em",marginBottom:5}}>YOUR CONTRACT, THIS MORNING</div>
+        <div style={{fontFamily:sans,fontSize:12.5,color:C.muted,fontStyle:"italic",lineHeight:1.55}}>“{ds.brief.declaration}”</div></div>)}
+      {pending.length>0&&(<div style={{marginBottom:16}}>
+        <div style={{fontFamily:mono,fontSize:9,color:C.powderHi,letterSpacing:"0.18em",marginBottom:9}}>THE ONLY QUESTION — FOR EACH LOSS</div>
+        {pending.map(t=>(<div key={t.tradeId} style={{background:C.faint,border:`1px solid ${C.border}`,borderRadius:10,
+          padding:"11px 13px",marginBottom:8}}>
+          <div style={{fontFamily:mono,fontSize:10.5,color:C.textDim,marginBottom:8}}>
+            {fmtT(t.ts)} · {t.dir.toUpperCase()} · {money(t.pnl)} · Q{t.quality||"—"}</div>
+          <div style={{display:"flex",gap:8}}>
+            <Pill sm color={C.powderHi} onClick={()=>onReviewLoss(t.tradeId,"valid")}>VALID SETUP — VARIANCE</Pill>
+            <Pill sm color={C.loss} onClick={()=>onReviewLoss(t.tradeId,"deviation")}>I DEVIATED</Pill>
+          </div></div>))}
+      </div>)}
+      <div style={{fontFamily:sans,fontSize:11.5,color:C.muted,lineHeight:1.6,marginBottom:18,textAlign:"center"}}>
+        Circuit breakers exist because you cannot trust yourself in that state yet.</div>
+      <Cta disabled={pending.length>0} onClick={onDebrief}>◈ {pending.length>0?"CLASSIFY EACH LOSS TO CONTINUE":"OPEN THE DEBRIEF"}</Cta>
+      <div style={{textAlign:"center",marginTop:12}}>
+        {!arming?(<button onClick={()=>setArming(true)} style={{background:"transparent",border:"none",color:C.dim,
+          fontFamily:mono,fontSize:9,letterSpacing:"0.12em",cursor:"pointer",padding:6}}>OVERRIDE THE LOCKOUT…</button>)
+        :(<div style={{textAlign:"left"}}>
+          <div style={{fontFamily:mono,fontSize:9,color:C.loss,letterSpacing:"0.06em",lineHeight:1.7,marginBottom:7}}>
+            TYPE, EXACTLY: “{OVERRIDE_SENTENCE}”<br/>THE OVERRIDE BECOMES A PERMANENT LEDGER EVENT.</div>
+          <Input value={typed} onChange={setTyped} placeholder="Type the sentence…"/>
+          <div style={{height:8}}/>
+          <button onClick={()=>match&&onOverride()} disabled={!match} style={{width:"100%",padding:12,
+            background:match?C.loss:C.faint,border:"none",borderRadius:9,color:match?"#fff":C.dim,
+            fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",cursor:match?"pointer":"not-allowed"}}>
+            BREAK MY OWN CIRCUIT BREAKER</button></div>)}
+      </div>
+    </div></div>);
+}
+
+/* ════ MODE 5 · DEBRIEF — auto-drafted, trader-signed ════ */
+function DebriefMode({ds,onSign,onBack}){
+  const [a1,setA1]=useState(null),[a2,setA2]=useState(null),[a3,setA3]=useState("");
+  const ready=a1!==null&&(ds.trades.some(t=>t.outcome==="loss")?a2!==null:true)&&a3.trim().length>=4;
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <Panel accent={C.powderHi}>
+      <Eyebrow color={C.powderHi}>DEBRIEF — AUTO-DRAFTED FROM THE LEDGER</Eyebrow>
+      <div style={{display:"flex",gap:8,margin:"12px 0",flexWrap:"wrap"}}>
+        <StatChip label="TAKES" value={ds.takes} color={C.bolt}/>
+        <StatChip label="PASSES" value={ds.passes} color={C.win}/>
+        <StatChip label="TRADES" value={ds.trades.length}/>
+        <StatChip label="DAY P&L" value={money(ds.dayPnl)} color={ds.dayPnl>=0?C.win:C.loss}/>
+      </div>
+      <TodayStream ds={ds}/>
+      <div style={{marginTop:4}}>
+        <div style={{fontFamily:mono,fontSize:9,color:C.muted,letterSpacing:"0.16em",marginBottom:8}}>Q1 — DID I FOLLOW THE FULL SYSTEM EXACTLY?</div>
+        <div style={{display:"flex",gap:7,marginBottom:14}}>
+          <Pill color={C.win} active={a1===true} onClick={()=>setA1(true)}>YES</Pill>
+          <Pill color={C.loss} active={a1===false} onClick={()=>setA1(false)}>NO</Pill></div>
+        {ds.trades.some(t=>t.outcome==="loss")&&(<div>
+          <div style={{fontFamily:mono,fontSize:9,color:C.muted,letterSpacing:"0.16em",marginBottom:8}}>Q2 — LOSSES: INVALID SETUP, OR DEVIATION?</div>
+          <div style={{display:"flex",gap:7,marginBottom:14}}>
+            <Pill color={C.powderHi} active={a2==="valid"} onClick={()=>setA2("valid")}>VALID — VARIANCE</Pill>
+            <Pill color={C.loss} active={a2==="deviation"} onClick={()=>setA2("deviation")}>DEVIATION</Pill></div></div>)}
+        <div style={{fontFamily:mono,fontSize:9,color:C.muted,letterSpacing:"0.16em",marginBottom:8}}>Q3 — ONE SPECIFIC IMPROVEMENT FOR TOMORROW</div>
+        <Input rows={2} value={a3} onChange={setA3} placeholder="One thing. Specific."/>
+        <div style={{height:14}}/>
+        <Cta disabled={!ready} onClick={()=>onSign({followed:a1,lossVerdict:a2,improvement:a3.trim()})}>◆ SIGN THE DEBRIEF</Cta>
+        <button onClick={onBack} style={{width:"100%",marginTop:10,background:"transparent",border:"none",
+          color:C.dim,fontFamily:mono,fontSize:9,letterSpacing:"0.14em",cursor:"pointer"}}>BACK TO HUNT</button>
+      </div>
+    </Panel>
+  </div>);
+}
+
+/* ════ TOGGLE — the one-tap reflection primitive ════ */
+function Toggle({label,on,onChange,locked}){
+  return(<button onClick={()=>!locked&&onChange(!on)} style={{display:"flex",justifyContent:"space-between",
+    alignItems:"center",gap:10,width:"100%",background:C.faint,cursor:locked?"default":"pointer",
+    border:`1px solid ${on?`${C.win}66`:C.border}`,borderRadius:10,padding:"11px 13px",transition:"all .15s"}}>
+    <span style={{fontFamily:sans,fontSize:12,color:on?C.text:C.muted,textAlign:"left",lineHeight:1.4}}>{label}</span>
+    <span style={{width:38,height:22,borderRadius:999,flexShrink:0,position:"relative",transition:"all .15s",
+      background:on?C.win:C.panel3,border:`1px solid ${on?C.win:C.border}`,
+      boxShadow:on?`0 0 12px ${C.win}44`:"none"}}>
+      <span style={{position:"absolute",top:2,left:on?17:2,width:16,height:16,borderRadius:"50%",
+        background:on?"#04101F":C.dim,transition:"all .15s"}}/></span></button>);
+}
+function ToggleGroup({defs,values,onChange,locked}){
+  const cats=["MENTAL","EMOTIONAL","FINANCIAL"];
+  const catC={MENTAL:C.powderHi,EMOTIONAL:C.ice,FINANCIAL:C.bolt};
+  return(<div style={{display:"flex",flexDirection:"column",gap:12}}>
+    {cats.map(cat=>{const rows=defs.filter(d=>d.cat===cat);if(!rows.length)return null;
+      return(<div key={cat}>
+        <div style={{fontFamily:mono,fontSize:8.5,color:catC[cat],letterSpacing:"0.24em",marginBottom:7}}>◆ {cat}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {rows.map(d=>(<Toggle key={d.k} label={d.l} on={!!values[d.k]} locked={locked}
+            onChange={v=>onChange(d.k,v)}/>))}</div></div>);})}
+  </div>);
+}
+function ReflBar({label,yes,total,color}){
+  const pct=total?Math.round(yes/total*100):0;
+  return(<div style={{marginBottom:8}}>
+    <div style={{display:"flex",justifyContent:"space-between",fontFamily:mono,fontSize:9,marginBottom:4}}>
+      <span style={{color:C.muted,letterSpacing:"0.06em"}}>{label}</span>
+      <span style={{color:color||C.textDim}}>{total?`${pct}% · ${yes}/${total}`:"—"}</span></div>
+    <div style={{height:5,background:C.faint,borderRadius:99,overflow:"hidden"}}>
+      <div style={{width:`${pct}%`,height:"100%",background:color||C.powderHi,
+        boxShadow:`0 0 8px ${color||C.powderHi}66`,transition:"width .4s ease"}}/></div></div>);
+}
+
+/* ════ LEVELS — the daily board conclusions and entries are drawn from ════ */
+function LevelsMode({ds,onAddLevel,onRemoveLevel,onSetMark,onSetNyo}){
+  const brief=ds.brief;
+  const [type,setType]=useState("eqh");
+  const [price,setPrice]=useState("");
+  const [note,setNote]=useState("");
+  const [mk,setMk]=useState("");
+  const [nyo,setNyo]=useState("");
+  if(!brief)return(<Panel style={{textAlign:"center",padding:"40px 20px"}}>
+    <div style={{fontFamily:mono,fontSize:11,color:C.dim,letterSpacing:"0.1em"}}>SEAL THE BRIEF — THE OPENS ANCHOR THE LADDER</div></Panel>);
+  const rows=[
+    ...(brief.tmo?[{price:brief.tmo,kind:"open",l:"TRUE MONTH OPEN · CONTEXT",c:C.dim}]:[]),
+    ...(brief.two?[{price:brief.two,kind:"open",l:"TRUE WEEK OPEN · WEIGHTED",c:C.bolt}]:[]),
+    ...(brief.tdo?[{price:brief.tdo,kind:"open",l:"TRUE DAY OPEN · ENTRY",c:C.bolt}]:[]),
+    ...(ds.opens&&ds.opens.nyo?[{price:ds.opens.nyo,kind:"open",l:"NY OPEN 9:30 · ENTRY",c:C.ice}]:[]),
+    ...ds.levels.map(lv=>({...lv,kind:"level",l:levelTypeOf(lv.type).l,c:levelTypeOf(lv.type).c})),
+    ...(ds.mark?[{price:ds.mark,kind:"mark",l:"MARK",c:C.white}]:[]),
+  ].sort((a,b)=>parseFloat(b.price)-parseFloat(a.price));
+  const m=parseFloat(ds.mark);
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <StackBanner stack={ds.stack} qt={ds.qt} verdict={ds.verdict}/>
+    <Panel accent={C.bolt}>
+      <Eyebrow color={C.bolt}><Bolt size={12}/>NQ MARK — DRIVES THE STACK</Eyebrow>
+      <div style={{display:"flex",gap:8,marginTop:10}}>
+        <Input numeric value={mk} onChange={setMk} placeholder={ds.mark?`mark ${ds.mark}`:"current NQ price"}/>
+        <button onClick={()=>{if(mk){onSetMark(mk);setMk("");}}} style={{padding:"11px 18px",border:"none",
+          borderRadius:9,cursor:"pointer",fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+          background:`linear-gradient(135deg,${C.bolt},${C.bolt}CC)`,color:"#04101F",whiteSpace:"nowrap"}}>SET MARK</button>
+      </div>
+
+      {!(ds.opens&&ds.opens.nyo)&&(<div style={{marginTop:12,borderTop:`1px dashed ${C.border}`,paddingTop:12}}>
+        <div style={{fontFamily:mono,fontSize:9,color:C.ice,letterSpacing:"0.14em",marginBottom:7}}>NY OPEN · 9:30 — STAMP IT WHEN THE BELL RINGS</div>
+        <div style={{display:"flex",gap:8}}>
+          <Input numeric value={nyo} onChange={setNyo} placeholder="9:30 open print"/>
+          <button onClick={()=>{if(nyo){onSetNyo(nyo);setNyo("");}}} style={{padding:"11px 18px",border:"none",
+            borderRadius:9,cursor:"pointer",fontFamily:mono,fontWeight:700,fontSize:11,letterSpacing:"0.1em",
+            background:`linear-gradient(135deg,${C.ice},${C.powderHi})`,color:"#04101F",whiteSpace:"nowrap"}}>SET NYO</button>
+        </div></div>)}
+    </Panel>
+    <Panel accent={C.powderHi}>
+      <Eyebrow color={C.powderHi}>THE LADDER — TODAY'S KEY LEVELS</Eyebrow>
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:11}}>
+        {rows.length===0&&<div style={{fontFamily:mono,fontSize:10,color:C.dim,letterSpacing:"0.08em"}}>NO LEVELS YET — ADD THE ONES YOU DREW THIS MORNING</div>}
+        {rows.map((r,i)=>{
+          const p=parseFloat(r.price);
+          const dist=m&&r.kind!=="mark"?p-m:null;
+          const isMark=r.kind==="mark",isOpen=r.kind==="open";
+          return(<div key={i} style={{display:"flex",alignItems:"center",gap:10,
+            background:isMark?`${C.bolt}12`:C.faint,
+            border:`1px solid ${isMark?`${C.bolt}77`:isOpen?`${C.bolt}44`:C.border}`,
+            borderLeft:`3px solid ${r.c}`,borderRadius:9,padding:"9px 12px",
+            boxShadow:isMark?`0 0 18px ${C.bolt}22`:"none"}}>
+            {isMark&&<Bolt size={11} glow/>}
+            <span style={{fontFamily:mono,fontSize:13,fontWeight:700,color:isMark?C.bolt:C.text,minWidth:74}}>{r.price}</span>
+            <span style={{fontFamily:mono,fontSize:8.5,letterSpacing:"0.14em",color:r.c,flexShrink:0}}>{r.l}</span>
+            <span style={{fontFamily:sans,fontSize:10.5,color:C.muted,flex:1,lineHeight:1.4}}>{r.note||""}</span>
+            {dist!==null&&<span style={{fontFamily:mono,fontSize:9.5,color:dist>0?C.loss:C.win,flexShrink:0}}>
+              {dist>0?"+":""}{Math.round(dist)} PTS</span>}
+            {r.kind==="level"&&<button onClick={()=>onRemoveLevel(r.id)} style={{background:"transparent",
+              border:"none",color:C.dim,cursor:"pointer",fontFamily:mono,fontSize:12,padding:"0 2px"}}>✕</button>}
+          </div>);})}
+      </div>
+    </Panel>
+    <Panel>
+      <Eyebrow>ADD A LEVEL</Eyebrow>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"10px 0"}}>
+        {LEVEL_TYPES.map(t=>(<Pill key={t.v} sm color={t.c} active={type===t.v} onClick={()=>setType(t.v)}>{t.l}</Pill>))}
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <Field label="PRICE"><Input numeric value={price} onChange={setPrice} placeholder="21884"/></Field>
+        <Field label="NOTE (OPTIONAL)"><Input value={note} onChange={setNote} placeholder="e.g. Asia highs — sweep target"/></Field>
+      </div>
+      <div style={{height:12}}/>
+      <Cta color={C.powderHi} disabled={!price} onClick={()=>{onAddLevel({type,price,note});setPrice("");setNote("");}}>+ ADD TO THE BOARD</Cta>
+    </Panel>
+    <Panel>
+      <Eyebrow color={C.ice}>SPY GEX — THE REGIME PAIR</Eyebrow>
+      <div style={{display:"flex",gap:8,margin:"11px 0 8px",flexWrap:"wrap"}}>
+        <StatChip label="REGIME" value={regimeOf(brief.regime).short} color={regimeOf(brief.regime).color}/>
+        {brief.spyFlip&&<StatChip label="SPY FLIP" value={brief.spyFlip} color={C.bolt}/>}
+        {brief.spyPut&&<StatChip label="SPY PUT WALL" value={brief.spyPut} color={C.loss}/>}
+        {brief.spyCall&&<StatChip label="SPY CALL WALL" value={brief.spyCall} color={C.win}/>}
+        {brief.spySpot&&<StatChip label="SPY SPOT" value={brief.spySpot} color={C.ice}/>}
+      </div>
+
+    </Panel>
+  </div>);
+}
+
+/* ════ CALENDAR — the week's economic landmines, feeding the mission ════ */
+function CalendarMode({ledger,onAdd,onRemove}){
+  const [off,setOff]=useState(0);
+  const [name,setName]=useState("CPI");
+  const [custom,setCustom]=useState("");
+  const [dayIx,setDayIx]=useState(0);
+  const [time,setTime]=useState("8:30");
+  const [impact,setImpact]=useState("high");
+  const wb=weekBoundsOf(off);
+  const all=econAllOf(ledger);
+  const byDay=k=>all.filter(e=>e.dateKey===k).sort((a,b)=>econTsOf(a)-econTsOf(b));
+  const finalName=name==="Custom"?custom:name;
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <Panel accent={C.warn}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <button onClick={()=>setOff(off-1)} style={{background:"transparent",border:`1px solid ${C.border}`,
+          borderRadius:8,color:C.muted,fontFamily:mono,cursor:"pointer",padding:"6px 12px"}}>‹</button>
+        <Eyebrow color={C.warn}>{wb.label}</Eyebrow>
+        <button onClick={()=>setOff(off+1)} style={{background:"transparent",border:`1px solid ${C.border}`,
+          borderRadius:8,color:C.muted,fontFamily:mono,cursor:"pointer",padding:"6px 12px"}}>›</button>
+      </div>
+      <div style={{fontFamily:mono,fontSize:8.5,color:C.dim,letterSpacing:"0.08em",marginTop:10}}>HIGH IMPACT TODAY → NEWS WINDOW · Q −2</div>
+    </Panel>
+    {wb.days.map((k,i)=>{const evs=byDay(k);const isToday=k===todayKey();
+      return(<Panel key={k} accent={isToday?C.bolt:undefined} style={{padding:"12px 14px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:evs.length?9:0}}>
+          <span style={{fontFamily:disp,fontSize:12,fontWeight:700,letterSpacing:"0.1em",
+            color:isToday?C.bolt:C.textDim}}>{isToday?"TODAY · ":""}{fmtD(k).toUpperCase()}</span>
+          <span style={{fontFamily:mono,fontSize:9,color:C.dim}}>{evs.length?`${evs.length} EVENT${evs.length>1?"S":""}`:"CLEAR"}</span></div>
+        {evs.map(e=>{const imp=IMPACTS.find(x=>x.v===e.impact)||IMPACTS[2];
+          return(<div key={e.id} style={{display:"flex",alignItems:"center",gap:10,background:C.faint,
+            border:`1px solid ${C.border}`,borderLeft:`3px solid ${imp.c}`,borderRadius:8,
+            padding:"8px 11px",marginBottom:6}}>
+            <span style={{fontFamily:mono,fontSize:11,fontWeight:700,color:C.text,minWidth:44}}>{e.time}</span>
+            <span style={{fontFamily:sans,fontSize:12,color:C.textDim,flex:1}}>{e.name}</span>
+            <span style={{fontFamily:mono,fontSize:8,letterSpacing:"0.16em",color:imp.c}}>{imp.l}</span>
+            <button onClick={()=>onRemove(e.id)} style={{background:"transparent",border:"none",color:C.dim,
+              cursor:"pointer",fontFamily:mono,fontSize:12}}>✕</button></div>);})}
+      </Panel>);})}
+    <Panel>
+      <Eyebrow>ADD AN EVENT</Eyebrow>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",margin:"10px 0"}}>
+        {[...ECON_PRESETS,"Custom"].map(p=>(<Pill key={p} sm color={C.warn} active={name===p} onClick={()=>setName(p)}>{p}</Pill>))}
+      </div>
+      {name==="Custom"&&<div style={{marginBottom:10}}><Input value={custom} onChange={setCustom} placeholder="Event name"/></div>}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+        {wb.days.map((k,i)=>(<Pill key={k} sm color={C.powderHi} active={dayIx===i} onClick={()=>setDayIx(i)}>{fmtD(k).split(",")[0].toUpperCase()}</Pill>))}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap",marginBottom:12}}>
+        <Field label="TIME (24H, ET)"><Input value={time} onChange={setTime} placeholder="8:30"/></Field>
+        <div style={{display:"flex",gap:6,paddingBottom:2}}>
+          {IMPACTS.map(x=>(<Pill key={x.v} sm color={x.c} active={impact===x.v} onClick={()=>setImpact(x.v)}>{x.l}</Pill>))}
+        </div>
+      </div>
+      <Cta color={C.warn} disabled={!finalName} onClick={()=>{onAdd({name:finalName,dateKey:wb.days[dayIx],time,impact});if(name==="Custom")setCustom("");}}>+ ADD TO THE WEEK</Cta>
+    </Panel>
+  </div>);
+}
+
+/* ════ REVIEW — journal · week · month · stats · ledger ════ */
+function StatsView({ledger,settings}){
+  const st=useMemo(()=>reviewStatsOf(ledger,settings),[ledger,settings]);
+  const ins=useMemo(()=>insightsOf(ledger,settings),[ledger,settings]);
+  const confC={OBSERVED:C.win,EMERGING:C.bolt,WATCHING:C.dim};
+  return(<div>
+    <Panel accent={C.bolt}>
+      <Eyebrow color={C.bolt}><Bolt size={12}/>PERFORMANCE — ALL SESSIONS</Eyebrow>
+      <div style={{display:"flex",gap:8,margin:"12px 0 4px",flexWrap:"wrap"}}>
+        <StatChip label="TRADES" value={st.n}/>
+        <StatChip label="WIN RATE" value={`${st.winRate}%`} color={st.winRate>=50?C.win:C.loss}/>
+        <StatChip label="NET P&L" value={money(st.pnl)} color={st.pnl>=0?C.win:C.loss}/>
+        <StatChip label="AVG R" value={`${st.avgR>=0?"+":""}${st.avgR.toFixed(2)}R`} color={st.avgR>=0?C.win:C.loss}/>
+      </div>
+    </Panel>
+    <Panel accent={C.win}>
+      <Eyebrow color={C.win}>DISCIPLINE — THE P&L NO JOURNAL SHOWS</Eyebrow>
+      <div style={{display:"flex",gap:8,margin:"12px 0",flexWrap:"wrap"}}>
+        <StatChip label="PASSES LOGGED" value={st.passes} color={C.win}/>
+        <StatChip label="RISK KEPT OFF TABLE" value={money(st.riskAvoided)} color={C.win}/>
+        <StatChip label="OVERRIDES" value={st.overrides} color={st.overrides>0?C.loss:C.textDim}/>
+      </div>
+    </Panel>
+    <Panel accent={C.powderHi}>
+      <Eyebrow color={C.powderHi}>EXPECTANCY SPLIT — SYSTEM VS EXECUTION</Eyebrow>
+      <div style={{display:"flex",gap:8,margin:"12px 0",flexWrap:"wrap"}}>
+        <StatChip label={`GATE-HONEST (Q≥${settings.qualityFloor}) · n=${st.nHi}`} value={`${st.avgRHi>=0?"+":""}${st.avgRHi.toFixed(2)}R`} color={st.avgRHi>=0?C.win:C.loss}/>
+        <StatChip label={`ALL TRADES · n=${st.n}`} value={`${st.avgR>=0?"+":""}${st.avgR.toFixed(2)}R`} color={st.avgR>=0?C.win:C.loss}/>
+      </div>
+      <div style={{fontFamily:sans,fontSize:11,color:C.muted}}>The gap is the roadmap.</div>
+    </Panel>
+    <Panel>
+      <Eyebrow>THE NOTICING ENGINE — EVIDENCE-LINKED, SAMPLE-HONEST</Eyebrow>
+      <div style={{display:"flex",flexDirection:"column",gap:9,marginTop:11}}>
+        {ins.length===0&&<div style={{fontFamily:sans,fontSize:11.5,color:C.dim}}>Not enough data. The engine won't guess.</div>}
+        {ins.map((x,i)=>(<div key={i} style={{background:C.faint,border:`1px solid ${C.border}`,
+          borderLeft:`3px solid ${x.color}`,borderRadius:9,padding:"10px 12px"}}>
+          <div style={{fontFamily:mono,fontSize:8.5,letterSpacing:"0.18em",marginBottom:4,
+            color:confC[x.conf]||C.dim}}>◆ {x.conf} · {x.n} SAMPLES</div>
+          <div style={{fontFamily:sans,fontSize:12,color:C.textDim,lineHeight:1.5}}>{x.text}</div></div>))}
+      </div>
+    </Panel>
+  </div>);
+}
+function TodayJournal({ledger,settings,ds,onSignReflection}){
+  const existing=reflectionForDay(ledger,todayKey());
+  const [tg,setTg]=useState(existing?{...existing.toggles}:{});
+  const [note,setNote]=useState(existing?existing.note:"");
+  const avgQ=ds.trades.length?(ds.trades.reduce((s,t)=>s+(t.quality||0),0)/ds.trades.length).toFixed(1):"—";
+  const gaugeTrades=ds.trades.filter(t=>t.gaugeAligned===true).length;
+  const summary=[
+    `${ds.takes} take${ds.takes===1?"":"s"}, ${ds.passes} pass${ds.passes===1?"":"es"} — ${ds.trades.length} trade${ds.trades.length===1?"":"s"} closed for ${money(ds.dayPnl)}.`,
+    ds.trades.length?`Average entry quality ${avgQ}${gaugeTrades?` · ${gaugeTrades}/${ds.trades.length} entered with the true-open gauge`:""}.`:null,
+    ds.consec>=2?"The Wall tripped — the losses above are the reflection material.":null,
+    ds.passes>0?`${money(ds.passes*settings.riskPerTrade)} of risk deliberately kept off the table.`:null,
+  ].filter(Boolean);
+  return(<div>
+    <Panel accent={C.powderHi}>
+      <Eyebrow color={C.powderHi}>AUTO-SUMMARY — TODAY, FROM THE LEDGER</Eyebrow>
+      <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
+        {summary.map((s,i)=>(<div key={i} style={{fontFamily:sans,fontSize:12.5,color:C.textDim,lineHeight:1.55,
+          display:"flex",gap:9}}><span style={{color:C.powderHi,fontFamily:mono}}>▸</span>{s}</div>))}
+      </div>
+      <div style={{marginTop:12}}><TodayStream ds={ds}/></div>
+    </Panel>
+    <Panel accent={C.bolt}>
+      <Eyebrow color={C.bolt}><Bolt size={12}/>TRUE REFLECTION — SEVEN TOGGLES, ONE TRUTH</Eyebrow>
+      <div style={{marginTop:12}}>
+        <ToggleGroup defs={DAILY_TOGGLES} values={tg} locked={!!existing}
+          onChange={(k,v)=>setTg(p=>({...p,[k]:v}))}/>
+      </div>
+      <div style={{marginTop:12}}>
+        <Field label="THE HONEST PARAGRAPH — WHAT ACTUALLY HAPPENED TODAY" color={C.bolt}>
+          <Input rows={3} value={note} onChange={v=>!existing&&setNote(v)}
+            placeholder="Not what the P&L says. What you did, what you felt, what you'll own."/></Field>
+      </div>
+      <div style={{height:12}}/>
+      {existing
+        ?<div style={{fontFamily:mono,fontSize:10,color:C.win,textAlign:"center",letterSpacing:"0.1em"}}>◆ SIGNED {fmtT(existing.ts||Date.now())} — TODAY'S REFLECTION IS ON THE RECORD</div>
+        :<Cta onClick={()=>onSignReflection({dateKey:todayKey(),toggles:tg,note:note.trim(),ts:Date.now()})}>◆ SIGN TODAY'S REFLECTION</Cta>}
+    </Panel>
+  </div>);
+}
+function PeriodView({ledger,settings,kind,onSignPeriod}){
+  const [off,setOff]=useState(0);
+  const bounds=kind==="week"?weekBoundsOf(off):monthBoundsOf(off);
+  const st=useMemo(()=>periodStatsOf(ledger,settings,bounds.fromKey,bounds.toKey),[ledger,settings,off,kind]);
+  const defs=kind==="week"?WEEKLY_TOGGLES:MONTHLY_TOGGLES;
+  const evType=kind==="week"?"WEEKLY_REVIEW_SIGNED":"MONTHLY_REVIEW_SIGNED";
+  const keyName=kind==="week"?"weekKey":"monthKey";
+  const keyVal=kind==="week"?bounds.weekKey:bounds.monthKey;
+  const existing=periodReviewOf(ledger,evType,keyName,keyVal);
+  const [tg,setTg]=useState({});
+  const [note,setNote]=useState("");
+  useEffect(()=>{setTg(existing?{...existing.toggles}:{});setNote(existing?existing.note||"":"");},[keyVal]);
+  const stTot=Object.values(st.states).reduce((a,b)=>a+b,0);
+  const steadyN=(st.states.calm||0)+(st.states.confident||0);
+  return(<div>
+    <Panel accent={C.bolt}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <button onClick={()=>setOff(off-1)} style={{background:"transparent",border:`1px solid ${C.border}`,
+          borderRadius:8,color:C.muted,fontFamily:mono,cursor:"pointer",padding:"6px 12px"}}>‹</button>
+        <Eyebrow color={C.bolt}>{bounds.label}</Eyebrow>
+        <button onClick={()=>setOff(Math.min(0,off+1))} style={{background:"transparent",border:`1px solid ${C.border}`,
+          borderRadius:8,color:off<0?C.muted:C.dim,fontFamily:mono,cursor:"pointer",padding:"6px 12px"}}>›</button>
+      </div>
+    </Panel>
+    <Panel accent={C.bolt}>
+      <Eyebrow color={C.bolt}>FINANCIAL</Eyebrow>
+      <div style={{display:"flex",gap:8,margin:"11px 0 4px",flexWrap:"wrap"}}>
+        <StatChip label="NET P&L" value={money(st.pnl)} color={st.pnl>=0?C.win:C.loss}/>
+        <StatChip label="TRADES" value={st.n}/>
+        <StatChip label="WIN RATE" value={st.n?`${st.winRate}%`:"—"} color={st.winRate>=50?C.win:C.loss}/>
+        <StatChip label="AVG R" value={st.n?`${st.avgR>=0?"+":""}${st.avgR.toFixed(2)}R`:"—"} color={st.avgR>=0?C.win:C.loss}/>
+        <StatChip label="PASSES" value={st.passes} color={C.win}/>
+        <StatChip label="RISK AVOIDED" value={money(st.riskAvoided)} color={C.win}/>
+        {st.best&&<StatChip label={`BEST · ${fmtD(st.best.k).toUpperCase()}`} value={money(st.best.pnl)} color={C.win}/>}
+        {st.worst&&<StatChip label={`WORST · ${fmtD(st.worst.k).toUpperCase()}`} value={money(st.worst.pnl)} color={C.loss}/>}
+      </div>
+    </Panel>
+    <Panel accent={C.powderHi}>
+      <Eyebrow color={C.powderHi}>MENTAL — SYSTEM ADHERENCE</Eyebrow>
+      <div style={{marginTop:11}}>
+        <ReflBar label="DEBRIEFS: FOLLOWED THE SYSTEM" yes={st.followed.yes} total={st.followed.total} color={C.powderHi}/>
+        <ReflBar label="REFLECTIONS: FOLLOWED THE CONTRACT" yes={(st.refl.contract||{}).yes||0} total={(st.refl.contract||{}).total||0} color={C.powderHi}/>
+        <ReflBar label="REFLECTIONS: RESPECTED THE GAUGE" yes={(st.refl.gauge||{}).yes||0} total={(st.refl.gauge||{}).total||0} color={C.ice}/>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+        <StatChip label="SESSIONS" value={st.sessions}/>
+        <StatChip label="LOCKOUTS" value={st.trips} color={st.trips>0?C.loss:C.textDim}/>
+        <StatChip label="OVERRIDES" value={st.overrides} color={st.overrides>0?C.loss:C.textDim}/>
+      </div>
+    </Panel>
+    <Panel accent={C.ice}>
+      <Eyebrow color={C.ice}>EMOTIONAL — WHAT THE STAMPS SAY</Eyebrow>
+      <div style={{marginTop:11}}>
+        <ReflBar label="STEADY EXITS (CALM + CONFIDENT)" yes={steadyN} total={stTot} color={C.win}/>
+        {["rushed","bored","tilted"].map(k=>(
+          <ReflBar key={k} label={`${k.toUpperCase()} EXITS`} yes={st.states[k]||0} total={stTot} color={C.loss}/>))}
+        <ReflBar label="REFLECTIONS: EMOTIONALLY STEADY DAYS" yes={(st.refl.steady||{}).yes||0} total={(st.refl.steady||{}).total||0} color={C.ice}/>
+        <ReflBar label="REFLECTIONS: NO BOREDOM / REVENGE" yes={(st.refl.boredom||{}).yes||0} total={(st.refl.boredom||{}).total||0} color={C.ice}/>
+      </div>
+    </Panel>
+    <Panel accent={C.bolt}>
+      <Eyebrow color={C.bolt}><Bolt size={12}/>{kind==="week"?"WEEKLY":"MONTHLY"} TOGGLES — MENTAL · EMOTIONAL · FINANCIAL</Eyebrow>
+      <div style={{marginTop:12}}>
+        <ToggleGroup defs={defs} values={tg} locked={!!existing} onChange={(k,v)=>setTg(p=>({...p,[k]:v}))}/>
+      </div>
+      <div style={{marginTop:12}}>
+        <Field label="ONE LINE FOR THE RECORD">
+          <Input rows={2} value={note} onChange={v=>!existing&&setNote(v)} placeholder={kind==="week"?"What this week taught you.":"What this month changed."}/></Field>
+      </div>
+      <div style={{height:12}}/>
+      {existing
+        ?<div style={{fontFamily:mono,fontSize:10,color:C.win,textAlign:"center",letterSpacing:"0.1em"}}>◆ SIGNED — THIS {kind.toUpperCase()} IS ON THE RECORD</div>
+        :<Cta onClick={()=>onSignPeriod(evType,{[keyName]:keyVal,toggles:tg,note:note.trim(),ts:Date.now()})}>◆ SIGN THE {kind.toUpperCase()}</Cta>}
+    </Panel>
+  </div>);
+}
+function ReviewMode({ledger,settings,ds,onSignReflection,onSignPeriod}){
+  const [sub,setSub]=useState("today");
+  const SUBS=[{id:"today",l:"TODAY"},{id:"week",l:"WEEK"},{id:"month",l:"MONTH"},{id:"stats",l:"STATS"},{id:"ledger",l:"LEDGER"}];
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",scrollbarWidth:"none"}}>
+      {SUBS.map(s=>(<Pill key={s.id} sm color={C.bolt} active={sub===s.id} onClick={()=>setSub(s.id)}>{s.l}</Pill>))}
+    </div>
+    {sub==="today"&&<TodayJournal ledger={ledger} settings={settings} ds={ds} onSignReflection={onSignReflection}/>}
+    {sub==="week"&&<PeriodView ledger={ledger} settings={settings} kind="week" onSignPeriod={onSignPeriod}/>}
+    {sub==="month"&&<PeriodView ledger={ledger} settings={settings} kind="month" onSignPeriod={onSignPeriod}/>}
+    {sub==="stats"&&<StatsView ledger={ledger} settings={settings}/>}
+    {sub==="ledger"&&<LedgerMode ledger={ledger}/>}
+  </div>);
+}
+
+/* ════ LEDGER — full decision history, grouped by day ════ */
+function LedgerMode({ledger}){
+  const days=useMemo(()=>{
+    const g={};ledger.forEach(e=>{const k=dateKeyOf(e.ts);(g[k]=g[k]||[]).push(e);});
+    return Object.keys(g).sort((a,b)=>b.localeCompare(a)).map(k=>{
+      const evs=g[k],trades=closedTradesOf(evs);
+      return{k,evs,trades,pnl:trades.reduce((s,t)=>s+(t.pnl||0),0),
+        takes:decisionsOf(evs).filter(d=>d.action==="TAKE").length,
+        passes:decisionsOf(evs).filter(d=>d.action==="PASS").length};});
+  },[ledger]);
+  const [open,setOpen]=useState(days.length?days[0].k:null);
+  if(!days.length)return(<Panel style={{textAlign:"center",padding:"40px 20px"}}>
+    <div style={{fontFamily:mono,fontSize:11,color:C.dim,letterSpacing:"0.1em"}}>THE LEDGER IS EMPTY — YOUR FIRST BRIEF STARTS IT</div></Panel>);
+  return(<div>
+    {days.map(d=>(<Panel key={d.k} style={{padding:"12px 14px"}}>
+      <button onClick={()=>setOpen(open===d.k?null:d.k)} style={{width:"100%",background:"transparent",border:"none",
+        cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,padding:0}}>
+        <span style={{fontFamily:disp,fontSize:12,fontWeight:700,letterSpacing:"0.1em",color:d.k===todayKey()?C.bolt:C.textDim}}>
+          {d.k===todayKey()?"TODAY":fmtD(d.k).toUpperCase()}</span>
+        <span style={{fontFamily:mono,fontSize:10,color:C.muted}}>
+          {d.trades.length} TRD · {d.passes} PASS · <b style={{color:d.pnl>=0?C.win:C.loss}}>{money(d.pnl)}</b> {open===d.k?"▾":"▸"}</span>
+      </button>
+      {open===d.k&&<div style={{marginTop:10}}><TodayStream ds={{evs:d.evs}}/></div>}
+    </Panel>))}
+  </div>);
+}
+
+/* ════ SYSTEM — settings · data sovereignty ════ */
+function BrokerSync({ledger,settings,onApply}){
+  const csvRef=useRef(null);
+  const [rec,setRec]=useState(null);
+  const [meta,setMeta]=useState(null);
+  const [applied,setApplied]=useState(false);
+  const handle=txt=>{
+    const built=buildTradesFromCsv(txt,settings);
+    if(built.mode==="unknown"||built.mode==="empty"){setRec(null);setMeta({error:true,...built});return;}
+    setMeta(built);setRec(reconcileCsv(ledger,built.trades,settings));setApplied(false);};
+  return(<Panel accent={C.ice}>
+    <Eyebrow color={C.ice}>BROKER SYNC — TOPSTEPX CSV → CALIBRATED TRUTH</Eyebrow>
+    <div style={{fontFamily:sans,fontSize:11,color:C.muted,margin:"9px 0 12px"}}>
+      TopstepX trades or fills → FIFO → reconciled. Broker P&L becomes the record.</div>
+    <Cta ghost color={C.ice} onClick={()=>csvRef.current&&csvRef.current.click()}>SELECT CSV…</Cta>
+    <input ref={csvRef} type="file" accept=".csv,text/csv" style={{display:"none"}}
+      onChange={e=>{const f=e.target.files[0];if(f){const r=new FileReader();
+        r.onload=()=>handle(String(r.result));r.readAsText(f);}e.target.value="";}}/>
+    {meta&&meta.error&&(<div style={{fontFamily:mono,fontSize:10,color:C.loss,letterSpacing:"0.06em",marginTop:12,lineHeight:1.6}}>
+      COULD NOT READ THAT FILE — NEED EITHER ENTRY/EXIT PRICE COLUMNS OR SIDE/PRICE/TIME FILL COLUMNS.</div>)}
+    {rec&&(<div style={{marginTop:14}}>
+      <div style={{fontFamily:mono,fontSize:9,color:C.dim,letterSpacing:"0.14em",marginBottom:8}}>
+        PARSED {meta.trades.length} MNQ ROUND TRIP{meta.trades.length===1?"":"S"} · MODE {meta.mode.toUpperCase()}
+        {meta.skipped?` · ${meta.skipped} ROWS SKIPPED`:""}{meta.openLots?` · ${meta.openLots} STILL OPEN`:""}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+        <StatChip label="CONFIRMED" value={rec.confirmed} color={C.win}/>
+        <StatChip label="CALIBRATED" value={rec.adjusted} color={C.bolt}/>
+        <StatChip label="TO IMPORT" value={rec.missing.length} color={C.ice}/>
+        <StatChip label="FLAGGED" value={rec.phantom.length} color={rec.phantom.length?C.loss:C.textDim}/>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:220,overflowY:"auto",marginBottom:12}}>
+        {rec.matches.map((m,i)=>(<div key={"m"+i} style={{display:"flex",gap:9,alignItems:"baseline",
+          fontFamily:mono,fontSize:10,background:C.faint,border:`1px solid ${C.border}`,
+          borderLeft:`3px solid ${m.status==="confirmed"?C.win:C.bolt}`,borderRadius:8,padding:"7px 10px"}}>
+          <span style={{color:m.status==="confirmed"?C.win:C.bolt,fontWeight:700,minWidth:78}}>{m.status.toUpperCase()}</span>
+          <span style={{color:C.textDim}}>{m.csv.dir.toUpperCase()} {m.csv.size}x @ {m.csv.entry}</span>
+          <span style={{color:C.muted,marginLeft:"auto"}}>{money(m.csv.pnl)}{m.status==="adjusted"?` (Δ ${money(m.delta)})`:""}</span></div>))}
+        {rec.missing.map((ct,i)=>(<div key={"i"+i} style={{display:"flex",gap:9,alignItems:"baseline",
+          fontFamily:mono,fontSize:10,background:C.faint,border:`1px solid ${C.border}`,
+          borderLeft:`3px solid ${C.ice}`,borderRadius:8,padding:"7px 10px"}}>
+          <span style={{color:C.ice,fontWeight:700,minWidth:78}}>IMPORT</span>
+          <span style={{color:C.textDim}}>{fmtD(dateKeyOf(ct.exitTs))} · {ct.dir.toUpperCase()} {ct.size}x @ {ct.entry}</span>
+          <span style={{color:C.muted,marginLeft:"auto"}}>{money(ct.pnl)}</span></div>))}
+        {rec.phantom.map((t,i)=>(<div key={"p"+i} style={{display:"flex",gap:9,alignItems:"baseline",
+          fontFamily:mono,fontSize:10,background:C.faint,border:`1px solid ${C.border}`,
+          borderLeft:`3px solid ${C.loss}`,borderRadius:8,padding:"7px 10px"}}>
+          <span style={{color:C.loss,fontWeight:700,minWidth:78}}>FLAG</span>
+          <span style={{color:C.textDim}}>Ledger {t.dir.toUpperCase()} @ {t.entry} — not at the broker</span>
+          <span style={{color:C.muted,marginLeft:"auto"}}>{money(t.pnl)}</span></div>))}
+      </div>
+      {applied
+        ?<div style={{fontFamily:mono,fontSize:10,color:C.win,textAlign:"center",letterSpacing:"0.1em"}}>◆ APPLIED — THE LEDGER NOW MATCHES THE BROKER</div>
+        :<Cta color={C.ice} onClick={()=>{onApply(reconEventsOf(rec,settings));setApplied(true);}}>
+          ◆ APPLY — CALIBRATE THE LEDGER TO BROKER TRUTH</Cta>}
+    </div>)}
+  </Panel>);
+}
+function SystemMode({ledger,settings,onSave,onExport,onImport,onSeedDemo,onWipe,onApplyRecon}){
+  const [s,setS]=useState({...settings});
+  const fileRef=useRef(null);
+  const num=(k,l)=>(<Field label={l}><Input numeric value={String(s[k])} onChange={v=>setS(p=>({...p,[k]:v}))}/></Field>);
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <BrokerSync ledger={ledger} settings={settings} onApply={onApplyRecon}/>
+    <Panel accent={C.powderHi}>
+      <Eyebrow color={C.powderHi}>RISK PARAMETERS — MNQ SIZED</Eyebrow>
+      <div style={{fontFamily:mono,fontSize:9,color:C.ice,letterSpacing:"0.08em",margin:"9px 0 2px"}}>
+        MNQ · $2/PT · $0.50/TICK · WHOLE CONTRACTS</div>
+      <div style={{display:"flex",gap:9,flexWrap:"wrap",margin:"12px 0"}}>
+        {num("riskPerTrade","RISK CAP / TRADE ($)")}{num("maxDailyLoss","MAX DAILY LOSS ($)")}
+        {num("maxTrades","DEFAULT MAX TRADES")}{num("qualityFloor","QUALITY FLOOR")}
+        {num("ptValue","$ / POINT (MNQ = 2)")}
+      </div>
+      <Cta color={C.powderHi} onClick={()=>onSave({...s,riskPerTrade:parseFloat(s.riskPerTrade)||250,
+        maxDailyLoss:parseFloat(s.maxDailyLoss)||1000,maxTrades:parseInt(s.maxTrades,10)||2,
+        qualityFloor:parseInt(s.qualityFloor,10)||8,ptValue:parseFloat(s.ptValue)||2})}>SAVE PARAMETERS</Cta>
+    </Panel>
+    <Panel>
+      <Eyebrow>DATA — YOURS, LOCAL, PORTABLE</Eyebrow>
+      <div style={{display:"flex",gap:9,margin:"12px 0",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:130}}><Cta ghost color={C.bolt} onClick={onExport}>EXPORT LEDGER</Cta></div>
+        <div style={{flex:1,minWidth:130}}><Cta ghost color={C.ice} onClick={()=>fileRef.current&&fileRef.current.click()}>IMPORT</Cta></div>
+      </div>
+      <input ref={fileRef} type="file" accept="application/json" style={{display:"none"}}
+        onChange={e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=()=>onImport(String(r.result));r.readAsText(f);}}}/>
+      <div style={{display:"flex",gap:9,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:130}}><Cta ghost color={C.win} onClick={onSeedDemo}>LOAD DEMO SESSIONS</Cta></div>
+        <div style={{flex:1,minWidth:130}}><Cta ghost color={C.loss} onClick={()=>{if(confirm("Wipe the entire ledger? This cannot be undone."))onWipe();}}>WIPE LEDGER</Cta></div>
+      </div>
+      <div style={{fontFamily:mono,fontSize:8.5,color:C.dim,letterSpacing:"0.08em",marginTop:12}}>LOCAL ONLY · EXPORT ANYTIME</div>
+    </Panel>
+  </div>);
+}
+
+/* ════ DEMO SEED — ~6 weeks of plausible ledger history ════ */
+function seedDemo(settings){
+  const out=[];let day=new Date();day.setHours(9,0,0,0);
+  const rand=(a,b)=>a+Math.random()*(b-a);
+  for(let d=42;d>=1;d--){
+    const dt=new Date(day.getTime()-d*86400000);if(dt.getDay()===0||dt.getDay()===6)continue;
+    const base=dt.getTime();const regime=Math.random()<0.5?"neg":Math.random()<0.6?"pos":"flip";
+    const dir=Math.random()<0.5?"short":"long";
+    const tdo=21800+Math.floor(rand(-60,60));
+    out.push({ts:base,type:"BRIEF_SEALED",data:{regime,direction:dir,maxTrades:2,maxLoss:settings.maxDailyLoss,
+      fourHClear:regime!=="flip",weeklyAligned:Math.random()<0.7,
+      declaration:`${dir.toUpperCase()}S only. Two max. ${dir==="short"?"Premium above the opens":"Discount below the opens"} — wait for the sweep.`,
+      spyFlip:"687",spyPut:"680",spyCall:"695",spySpot:"685",
+      tmo:String(tdo-80),tdo:String(tdo),two:String(tdo-30),spot:String(tdo+(dir==="short"?25:-25))}});
+    out.push({ts:base+35*60000,type:"NYO_SET",data:{price:String(tdo+(dir==="short"?12:-12))}});
+    const nGates=1+Math.floor(Math.random()*3);let t=base+30*60000;let losses=0;
+    for(let g=0;g<nGates;g++){
+      const gid=`g${base}-${g}`;out.push({ts:t,type:"GATE_OPEN",data:{gateId:gid}});t+=rand(4,15)*60000;
+      const pass=Math.random()<0.35;const q=pass?5+Math.floor(rand(0,3)):regime==="neg"?8+Math.floor(rand(0,3)):7+Math.floor(rand(0,2));
+      if(pass){out.push({ts:t,type:"DECISION",data:{gateId:gid,action:"PASS",reason:PASS_REASONS[Math.floor(rand(0,PASS_REASONS.length))],quality:q}});t+=rand(20,60)*60000;continue;}
+      const winP=(regime==="neg"?0.62:regime==="pos"?0.42:0.3)*(q>=settings.qualityFloor?1:0.7);
+      const win=Math.random()<winP;
+      const stopPts=20,cts=Math.floor(settings.riskPerTrade/(stopPts*settings.ptValue));
+      const risk=cts*stopPts*settings.ptValue;
+      const pnl=win?risk*rand(1.6,2.1):-risk*rand(0.9,1.05);
+      const tid=`t${base}-${g}`;const entry=tdo+(dir==="short"?Math.floor(rand(10,50)):-Math.floor(rand(10,50)));
+      const wv=dir==="long"?"2u":"2d",av=dir==="long"?"2d":"2u";
+      const leanW=dir==="long"?"1g":"1r",leanA=dir==="long"?"1r":"1g";
+      const nAl=win?(Math.random()<0.6?6:5):(Math.random()<0.5?4:5);
+      const frames=["h1","h4","d","w","m","q"];const tfcSeed={};
+      frames.forEach((f,ix)=>{
+        if(ix<nAl)tfcSeed[f]=wv;
+        else tfcSeed[f]=Math.random()<0.4?leanW:Math.random()<0.5?av:leanA;});
+      const eff=Object.values(tfcSeed).reduce((s,v)=>s+(v===wv?1:v===leanW?0.5:0),0);
+      out.push({ts:t-60000,type:"STAGE_ARMED",data:{gateId:gid,stage:"tfc",opt:"seeded",tfc:tfcSeed,
+        tier:eff>=5.5?"ELITE":eff>=4.5?"HIGH":eff>=3?"MODERATE":"LOW"}});
+      out.push({ts:t,type:"DECISION",data:{gateId:gid,action:"TAKE",quality:q}});
+      out.push({ts:t+2000,type:"TRADE_OPENED",data:{tradeId:tid,gateId:gid,dir,entry,stop:dir==="long"?entry-stopPts:entry+stopPts,
+        target:dir==="long"?entry+2*stopPts:entry-2*stopPts,contracts:cts,quality:q,regime}});
+      t+=rand(12,45)*60000;
+      out.push({ts:t,type:"TRADE_CLOSED",data:{tradeId:tid,dir,outcome:win?"win":"loss",pnl:Math.round(pnl),
+        r:pnl/risk,quality:q,regime,exit:entry+(pnl/(cts*settings.ptValue))*(dir==="long"?1:-1),
+        state:win?"calm":Math.random()<0.4?"tilted":"rushed",gaugeAligned:true,
+        fullStack:Math.random()<0.6,alignTier:nAl===6?"ELITE":nAl===5?"HIGH":"MODERATE",
+        window:["PRIME","SWEEP","PM DRIVE","CHOP"][Math.floor(rand(0,win?2.2:4))],
+        postCooldown:losses>0&&Math.random()<0.5}});
+      if(!win){losses++;out.push({ts:t+1000,type:"COOLDOWN_START",data:{note:"Loss logged"}});t+=COOLDOWN_MS;}
+      if(losses>=2)break;t+=rand(20,70)*60000;
+    }
+    out.push({ts:base+7.5*3600000,type:"DEBRIEF_SIGNED",data:{followed:Math.random()<0.8,improvement:"Wait for the actual sweep, not the almost-sweep."}});
+    if(Math.random()<0.7){
+      const tg={};DAILY_TOGGLES.forEach(x=>{tg[x.k]=Math.random()<0.75;});
+      out.push({ts:base+8*3600000,type:"REFLECTION_SIGNED",data:{dateKey:dateKeyOf(base),toggles:tg,
+        note:"Honest day. The gauge kept me out of one bad long in premium.",ts:base+8*3600000}});
+    }
+  }
+  // last week's signed weekly review
+  const lastWeek=weekBoundsOf(-1);
+  const wt={};WEEKLY_TOGGLES.forEach(x=>{wt[x.k]=Math.random()<0.7;});
+  out.push({ts:Date.now()-3*86400000,type:"WEEKLY_REVIEW_SIGNED",data:{weekKey:lastWeek.weekKey,toggles:wt,note:"Patience improving. Sizing stays."}});
+  // this week's econ landmines
+  const wb=weekBoundsOf(0);
+  [["FOMC",2,"14:00","high"],["CPI",3,"8:30","high"],["Jobless Claims",3,"8:30","med"],["PPI",4,"8:30","med"]]
+    .forEach(([name,ix,time,impact],i)=>{if(wb.days[ix])out.push({ts:Date.now()-i,type:"ECON_ADD",
+      data:{id:`ec-seed-${i}`,name,dateKey:wb.days[ix],time,impact}});});
+  // today's level board
+  const tk=todayKey();const now=new Date();now.setHours(8,45,0,0);
+  [["eqh","21924","Asia equal highs — sweep target"],["ob","21884","4H bearish OB"],
+   ["fvg","21852","15M FVG"],["eql","21796","London equal lows"]].forEach(([type,price,note],i)=>{
+    out.push({ts:now.getTime()+i,type:"LEVEL_ADD",data:{id:`lv-seed-${i}`,type,price,note}});});
+  return out.sort((a,b)=>a.ts-b.ts);
+}
+
+/* ════ PERCEPTION — the market screen: levels · calendar ════ */
+function MarketMode({ds,ledger,onAddLevel,onRemoveLevel,onSetMark,onSetNyo,onAddEcon,onRemoveEcon}){
+  const [sub,setSub]=useState("levels");
+  return(<div style={{animation:"rise .35s ease both"}}>
+    <div style={{display:"flex",gap:6,marginBottom:16}}>
+      <Pill sm color={C.bolt} active={sub==="levels"} onClick={()=>setSub("levels")}>LEVELS</Pill>
+      <Pill sm color={C.warn} active={sub==="cal"} onClick={()=>setSub("cal")}>CALENDAR</Pill>
+    </div>
+    {sub==="levels"&&<LevelsMode ds={ds} onAddLevel={onAddLevel} onRemoveLevel={onRemoveLevel}
+      onSetMark={onSetMark} onSetNyo={onSetNyo}/>}
+    {sub==="cal"&&<CalendarMode ledger={ledger} onAdd={onAddEcon} onRemove={onRemoveEcon}/>}
+  </div>);
+}
+
+/* ════ APP — the operating system shell ════ */
+function EdgeOS(){
+  const [ledger,setLedger]=useState([]);
+  const [settings,setSettings]=useState(loadSettings());
+  const [nav,setNav]=useState("mission"); // mission | market | review | system
+  const [forceDebrief,setForceDebrief]=useState(false);
+  const [clock,setClock]=useState(new Date());
+  const [toast,setToast]=useState("");
+  useEffect(()=>{setLedger(loadLedger());},[]);
+  useEffect(()=>{const t=setInterval(()=>setClock(new Date()),1000);return()=>clearInterval(t);},[]);
+  const flash=m=>{setToast(m);setTimeout(()=>setToast(""),2400);};
+  const append=(type,data)=>{setLedger(prev=>{const next=[...prev,{ts:Date.now(),type,data:data||{}}];saveLedger(next);return next;});};
+
+  const ds=useMemo(()=>dayStateOf(ledger,settings),[ledger,settings,clock.getMinutes()]);
+  const baseMode=modeOf(ds);
+  const mode=baseMode==="HUNT"&&forceDebrief?"DEBRIEF":baseMode;
+  useEffect(()=>{
+    if(ds.tripped&&!ds.evs.some(e=>e.type==="BREAKER_TRIP"))append("BREAKER_TRIP",{reason:ds.reasons[0]||""});
+  },[ds.tripped]);
+
+  /* actions */
+  const seal=b=>{append("BRIEF_SEALED",b);flash("Contract sealed — immutable until tomorrow");};
+  const openGate=forced=>{
+    if(forced)append("GATE_FORCED",{note:"Opened against STAND DOWN",verdict:ds.verdict?ds.verdict.label:""});
+    append("GATE_OPEN",{gateId:`g${Date.now()}`,forced:!!forced});};
+  const arm=p=>{if(ds.gate)append("STAGE_ARMED",{gateId:ds.gate.gateId,...p});};
+  const decide=(action,extra)=>{
+    if(!ds.gate)return;
+    append("DECISION",{gateId:ds.gate.gateId,action,...extra});
+    if(action==="TAKE"){
+      const plan=extra.plan;
+      const g=pdGauge(plan.entry,ds.brief.tdo,ds.brief.two);
+      append("TRADE_OPENED",{tradeId:`t${Date.now()}`,gateId:ds.gate.gateId,dir:plan.dir,
+        entry:parseFloat(plan.entry),stop:parseFloat(plan.stop),target:parseFloat(plan.target),
+        contracts:plan.contracts,quality:extra.quality,regime:ds.brief.regime,
+        gaugeAligned:g&&g.dirBias?g.dirBias===plan.dir:null,
+        fullStack:ds.stack?!!ds.stack.full:null,window:ds.qt?ds.qt.window:null,
+        alignTier:ds.gate&&ds.gate.stages.tfc?ds.gate.stages.tfc.tier:null});
+      flash("Entry stamped — manage the R");
+    }else flash(action==="PASS"?"Pass logged — discipline recorded":"Gate expired — logged");
+  };
+  const closeTrade=({exit,state})=>{
+    const t=ds.openTrade;if(!t)return;
+    const risk=Math.abs(t.entry-t.stop)*t.contracts*settings.ptValue;
+    const pnl=Math.round((exit-t.entry)*(t.dir==="long"?1:-1)*t.contracts*settings.ptValue);
+    const outcome=pnl>0?"win":pnl<0?"loss":"be";
+    const postCooldown=ds.cooldownUntil>0&&(Date.now()-ds.cooldownUntil)<20*60000&&Date.now()>ds.cooldownUntil;
+    append("TRADE_CLOSED",{tradeId:t.tradeId,dir:t.dir,outcome,exit,pnl,r:risk?pnl/risk:0,
+      quality:t.quality,regime:t.regime,state,postCooldown,gaugeAligned:t.gaugeAligned,
+      fullStack:t.fullStack,window:t.window,alignTier:t.alignTier,durationMs:Date.now()-t.openedAt});
+    append("STATE_CHECK",{state});
+    if(outcome==="loss")append("COOLDOWN_START",{note:"Loss logged — 15-minute break"});
+    flash(`${outcome.toUpperCase()} · ${money(pnl)} stamped`);
+  };
+  const reviewLoss=(tradeId,verdict)=>append("LOSS_REVIEWED",{tradeId,verdict,note:verdict==="valid"?"Valid setup — variance":"Deviation"});
+  const override=()=>{append("BREAKER_OVERRIDE",{note:OVERRIDE_SENTENCE});flash("Override logged to your permanent record");};
+  const sign=d=>{append("DEBRIEF_SIGNED",d);setForceDebrief(false);flash("Debrief signed");};
+  const addLevel=l=>{append("LEVEL_ADD",{id:`lv${Date.now()}`,...l});flash("Level added to the board");};
+  const removeLevel=id=>append("LEVEL_REMOVE",{id});
+  const setMark=p=>{append("MARK_SET",{price:p});flash(`Mark set — ${p}`);};
+  const setNyo=p=>{append("NYO_SET",{price:p});flash(`NY open stamped — ${p}`);};
+  const addEcon=e=>{append("ECON_ADD",{id:`ec${Date.now()}`,...e});flash("Event added — the mission will watch it");};
+  const removeEcon=id=>append("ECON_REMOVE",{id});
+  const signReflection=d=>{append("REFLECTION_SIGNED",d);flash("Reflection signed — on the record");};
+  const signPeriod=(type,d)=>{append(type,d);flash("Signed — on the record");};
+  const exportAll=()=>{const blob=new Blob([JSON.stringify({ledger,settings,exported:Date.now()},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");
+    a.href=url;a.download=`edgeos-ledger-${todayKey()}.json`;a.click();URL.revokeObjectURL(url);flash("Ledger exported");};
+  const importAll=txt=>{try{const d=JSON.parse(txt);
+    if(d.ledger){setLedger(d.ledger);saveLedger(d.ledger);}
+    if(d.settings){setSettings({...loadSettings(),...d.settings});saveSettings({...loadSettings(),...d.settings});}
+    flash("Ledger imported");}catch(_){flash("Import failed — invalid file");}};
+  const demo=()=>{const seeded=seedDemo(settings);setLedger(seeded);saveLedger(seeded);flash("Demo sessions loaded");};
+  const applyRecon=evts=>{setLedger(prev=>{const next=[...prev,...evts].sort((a,b)=>a.ts-b.ts);
+    saveLedger(next);return next;});flash(`Broker sync applied — ${evts.length} event${evts.length===1?"":"s"} written`);};
+  const wipe=()=>{setLedger([]);saveLedger([]);flash("Ledger wiped");};
+
+  const NAV=[{id:"mission",l:"MISSION",icon:"◆"},{id:"market",l:"MARKET",icon:"≡"},
+    {id:"review",l:"LEARN",icon:"◈"},{id:"system",l:"SYSTEM",icon:"⚙"}];
+  const modeColor=mode==="LOCKOUT"?C.loss:mode==="EXECUTE"?(ds.openTrade&&ds.openTrade.dir==="long"?C.win:C.loss):mode==="BRIEF"?C.bolt:C.powderHi;
+  return(<div style={{minHeight:"100vh",color:C.text,fontFamily:sans,maxWidth:780,margin:"0 auto",
+    padding:"max(16px,env(safe-area-inset-top)) 14px calc(84px + env(safe-area-inset-bottom))"}}>
+    {/* Header */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+          <Bolt size={15} glow/><span style={{fontFamily:mono,fontSize:9.5,color:C.bolt,letterSpacing:"0.3em"}}>EDGE OS</span>
+        </div>
+        <h1 style={{fontFamily:disp,fontWeight:700,fontSize:24,letterSpacing:"0.1em",lineHeight:1,margin:0,
+          color:C.white,textShadow:`0 0 30px ${modeColor}44`}}>
+          {nav==="market"?"PERCEPTION":nav==="review"?"LEARNING":nav==="system"?"SYSTEM":MODE_LABEL[mode]||mode}</h1>
+      </div>
+      <div style={{textAlign:"right"}}>
+        <div style={{fontFamily:mono,fontSize:15,color:C.textDim}}>{clock.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</div>
+        <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-end",marginTop:3}}>
+          <span style={{width:5,height:5,borderRadius:"50%",background:C.powderHi,animation:"pulse 2s infinite"}}/>
+          <span style={{fontFamily:mono,fontSize:9,color:`${C.powderHi}88`}}>LOCAL · OFFLINE-READY</span></div></div>
+    </div>
+    <LoopStrip phase={loopPhaseOf(nav,mode)}/>
+    <Ribbon ds={ds} mode={mode}/>
+    {/* MISSION — the auto-routed mode machine */}
+    {nav==="mission"&&mode==="BRIEF"&&<BriefMode settings={settings} prefill={lastOpensPrefill(ledger)} onSeal={seal}/>}
+    {nav==="mission"&&mode==="HUNT"&&<HuntMode ds={ds} settings={settings} clock={clock}
+      onOpenGate={openGate} onArm={arm} onArmPlan={arm} onDecide={decide} onEndSession={()=>setForceDebrief(true)}/>}
+    {nav==="mission"&&mode==="EXECUTE"&&<ExecuteMode ds={ds} settings={settings} onClose={closeTrade}/>}
+    {nav==="mission"&&mode==="DEBRIEF"&&<DebriefMode ds={ds} onSign={sign} onBack={()=>setForceDebrief(false)}/>}
+    {nav==="market"&&<MarketMode ds={ds} ledger={ledger} onAddLevel={addLevel} onRemoveLevel={removeLevel}
+      onSetMark={setMark} onSetNyo={setNyo} onAddEcon={addEcon} onRemoveEcon={removeEcon}/>}
+    {nav==="review"&&<ReviewMode ledger={ledger} settings={settings} ds={ds}
+      onSignReflection={signReflection} onSignPeriod={signPeriod}/>}
+    {nav==="system"&&<SystemMode ledger={ledger} settings={settings} onSave={s=>{setSettings(s);saveSettings(s);flash("Parameters saved");}}
+      onExport={exportAll} onImport={importAll} onSeedDemo={demo} onWipe={wipe} onApplyRecon={applyRecon}/>}
+    {/* LOCKOUT overlays everything */}
+    {mode==="LOCKOUT"&&<LockoutMode ds={ds} onReviewLoss={reviewLoss} onOverride={override}
+      onDebrief={()=>{setNav("mission");setForceDebrief(true);append("BREAKER_OVERRIDE",{note:"debrief-only unlock"});}}/>}
+    {/* Toast */}
+    {toast&&(<div style={{position:"fixed",bottom:"calc(94px + env(safe-area-inset-bottom))",left:"50%",transform:"translateX(-50%)",
+      background:C.panel2,border:`1px solid ${C.bolt}55`,color:C.bolt,fontFamily:mono,fontSize:12,
+      padding:"10px 18px",borderRadius:999,zIndex:120,boxShadow:`0 8px 30px #000A,0 0 20px ${C.bolt}22`,whiteSpace:"nowrap"}}>{toast}</div>)}
+    {/* Dock */}
+    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:110,
+      background:`${C.bg2}F0`,borderTop:`1px solid ${C.border}`,backdropFilter:"blur(14px)",
+      padding:"9px 8px calc(9px + env(safe-area-inset-bottom))"}}>
+      <div style={{display:"flex",justifyContent:"space-around",maxWidth:780,margin:"0 auto"}}>
+        {NAV.map(n=>(<button key={n.id} onClick={()=>setNav(n.id)} style={{background:"transparent",border:"none",
+          cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 10px"}}>
+          <span style={{fontSize:17,lineHeight:1,color:nav===n.id?C.bolt:C.dim,
+            textShadow:nav===n.id?`0 0 14px ${C.bolt}77`:"none"}}>{n.icon}</span>
+          <span style={{fontFamily:mono,fontSize:8.5,letterSpacing:"0.1em",color:nav===n.id?C.bolt:C.dim}}>{n.l}</span></button>))}
+      </div></div>
+  </div>);
+}
+
+/* ════ INLINE MANIFEST + MOUNT ════ */
+try{
+  const manifest={name:"EDGE OS — Bolt Edition",short_name:"EDGE OS",
+    description:"The Gate · The Gauge · The Ledger · Lockout · The discretionary trader's operating system",
+    start_url:".",scope:".",display:"standalone",orientation:"portrait",
+    background_color:"#020A14",theme_color:"#020A14",icons:[]};
+  const mBlob=new Blob([JSON.stringify(manifest)],{type:"application/json"});
+  const link=document.createElement("link");link.rel="manifest";link.href=URL.createObjectURL(mBlob);
+  document.head.appendChild(link);
+}catch(_){}
+ReactDOM.createRoot(document.getElementById("root")).render(<EdgeOS/>);
+if(window.__edgeosBootTimer)clearTimeout(window.__edgeosBootTimer);
+
+</script>
+
+<script>
+  /* No-op service worker: enables installability without ever caching a stale
+     version of this file. GitHub Pages + browser HTTP cache handle delivery. */
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      try {
+        var swCode = 'self.addEventListener("install",function(e){self.skipWaiting()});' +
+                     'self.addEventListener("activate",function(e){self.clients.claim()});' +
+                     'self.addEventListener("fetch",function(e){});';
+        var swBlob = new Blob([swCode], { type: "application/javascript" });
+        navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(function(){});
+      } catch (_) {}
+    });
+  }
+</script>
+
+<script>
+  /* Manual transform-and-execute: reads the app source above, hands it to
+     Babel.transform() directly, and executes the compiled output. Avoids
+     Babel's automatic page-scanner entirely (proven pattern from STRAT OS). */
+  (function () {
+    function boot() {
+      try {
+        var src = document.getElementById("app-source").textContent;
+        var out = window.Babel.transform(src, { presets: [["react", { runtime: "classic" }]] });
+        (0, eval)(out.code);
+      } catch (err) {
+        var root = document.getElementById("root");
+        if (root) {
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;' +
+            'color:#E7F1FB;font-family:monospace;padding:32px;text-align:center;">' +
+            '<div><div style="font-size:13px;letter-spacing:.2em;color:#FFC20E;margin-bottom:14px;">' +
+            '\u26A1 EDGE OS COMPILE ERROR</div>' +
+            '<div style="font-size:12px;color:#6C8BAC;max-width:420px;line-height:1.6;">' +
+            String(err && err.message || err).replace(/</g, "&lt;") + "</div></div></div>";
+        }
+        console.error("EDGE OS compile error:", err);
+      }
+    }
+    function waitForLibs(n) {
+      n = n || 0;
+      if (window.React && window.ReactDOM && window.Babel) { boot(); }
+      else if (n < 600) { setTimeout(function () { waitForLibs(n + 1); }, 50); }
+      else {
+        var missing = [];
+        if (!window.React) missing.push("React");
+        if (!window.ReactDOM) missing.push("ReactDOM");
+        if (!window.Babel) missing.push("Babel");
+        var root = document.getElementById("root");
+        if (root) {
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;' +
+            'color:#E7F1FB;font-family:-apple-system,sans-serif;padding:32px;text-align:center;">' +
+            '<div><div style="font-size:13px;letter-spacing:.18em;color:#FFC20E;margin-bottom:14px;">' +
+            '\u26A1 EDGE OS COULD NOT LOAD</div>' +
+            '<div style="font-size:13px;color:#6C8BAC;line-height:1.6;max-width:380px;">Still missing after 30s: ' +
+            '<b style="color:#FF4D5E;">' + missing.join(", ") + "</b>. Usually a slow connection to unpkg.com. " +
+            'Check your internet and reload.</div>' +
+            '<div style="margin-top:18px;"><button onclick="location.reload()" style="background:#FFC20E;' +
+            'color:#04101F;border:none;border-radius:8px;padding:10px 22px;font-weight:700;' +
+            'font-family:monospace;font-size:12px;cursor:pointer;">RELOAD</button></div></div></div>';
+        }
+      }
+    }
+    (function showLoading() {
+      var root = document.getElementById("root");
+      if (root && root.children.length === 0) {
+        root.innerHTML =
+          '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;' +
+          'color:#3B587A;font-family:monospace;font-size:11px;letter-spacing:.16em;">' +
+          '\u26A1 BOOTING EDGE OS\u2026</div>';
+      }
+    })();
+    window.__edgeosBootTimer = setTimeout(function(){}, 0);
+    waitForLibs();
+  })();
+</script>
+</body>
+</html>
