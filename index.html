@@ -704,6 +704,56 @@ function reviewStatsOf(ledger,settings){
     avgR,avgRHi,nHi:hi.length,overrides,riskAvoided:passes*settings.riskPerTrade};
 }
 
+/* ════ THE MACHINE IDENTIFIER — behavioral pattern engine ════
+   Mines every signed daily reflection cumulatively and identifies which
+   behaviors are recurring — daily-referable and cumulative. This is the mirror
+   made permanent: not "how did today go" but "who are you across all days."
+   Each of the seven daily toggles is a behavior tracked for adherence rate,
+   current & best streak, and trajectory (recent window vs lifetime baseline). */
+function reflectionsChrono(ledger){
+  // one signed reflection per day, oldest→newest
+  const byDay={};
+  ledger.forEach(e=>{if(e.type==="REFLECTION_SIGNED"&&e.data.dateKey)byDay[e.data.dateKey]=e.data;});
+  return Object.keys(byDay).sort((a,b)=>a.localeCompare(b)).map(k=>byDay[k]);
+}
+function behaviorPatternsOf(ledger){
+  const refls=reflectionsChrono(ledger);
+  const total=refls.length;
+  const conf=n=>n>=10?"OBSERVED":n>=5?"EMERGING":"WATCHING";
+  const cats={MENTAL:C.powderHi,EMOTIONAL:C.ice,FINANCIAL:C.bolt};
+  const behaviors=DAILY_TOGGLES.map(def=>{
+    let yes=0,curStreak=0,bestStreak=0,run=0,lastFail=null;
+    const series=refls.map(r=>{
+      const v=!!(r.toggles&&r.toggles[def.k]);
+      if(v){yes++;run++;bestStreak=Math.max(bestStreak,run);}
+      else{run=0;lastFail=r.dateKey;}
+      return v;});
+    // current streak = trailing run of trues
+    for(let i=series.length-1;i>=0;i--){if(series[i])curStreak++;else break;}
+    const rate=total?Math.round(yes/total*100):0;
+    // trajectory: last up-to-5 vs lifetime baseline
+    const recent=series.slice(-5);
+    const recentRate=recent.length?Math.round(recent.filter(Boolean).length/recent.length*100):0;
+    const trend=total>=6?(recentRate>rate+8?"up":recentRate<rate-8?"down":"flat"):"flat";
+    const failCount=total-yes;
+    return{...def,catColor:cats[def.cat]||C.dim,yes,failCount,rate,curStreak,bestStreak,
+      recentRate,trend,lastFail,total,conf:conf(total)};
+  });
+  // sort: worst adherence first — these are the leaks worth naming
+  const ranked=[...behaviors].sort((a,b)=>a.rate-b.rate);
+  const topLeak=ranked.find(b=>b.total>=3&&b.rate<100)||null;
+  // identity read: cumulative professional vs reactive
+  const proSignals=["contract","gauge","aplus","sizing","again"];
+  const reactiveMiss=["boredom","steady","sizing"]; // failing these = reactive showing up
+  let proScore=0,proMax=0;
+  refls.forEach(r=>{proSignals.forEach(k=>{proMax++;if(r.toggles&&r.toggles[k])proScore++;});});
+  const proPct=proMax?Math.round(proScore/proMax*100):0;
+  const identity=proPct>=80?{l:"THE PROFESSIONAL",c:C.win,note:"Patient, selective, sized to plan. This is who is showing up."}
+    :proPct>=55?{l:"IN TRANSITION",c:C.bolt,note:"The professional is winning more days than not. Protect the streak."}
+    :{l:"THE REACTIVE TRADER",c:C.loss,note:"Urgency is still driving. The behaviors below are where it leaks in."};
+  return{total,behaviors,ranked,topLeak,proPct,identity};
+}
+
 /* ════ PRIMITIVES ════ */
 function Bolt({size=14,color=C.bolt,glow=false}){
   return(<svg width={size} height={size} viewBox="0 0 24 24" style={glow?{filter:`drop-shadow(0 0 6px ${color})`}:null}>
@@ -1650,7 +1700,34 @@ function TodayJournal({ledger,settings,ds,onSignReflection}){
         ?<div style={{fontFamily:mono,fontSize:10,color:C.win,textAlign:"center",letterSpacing:"0.1em"}}>◆ SIGNED {fmtT(existing.ts||Date.now())} — TODAY'S REFLECTION IS ON THE RECORD</div>
         :<Cta onClick={()=>onSignReflection({dateKey:todayKey(),toggles:tg,note:note.trim(),ts:Date.now()})}>◆ SIGN TODAY'S REFLECTION</Cta>}
     </Panel>
+    {existing&&<TodayPatternStrip ledger={ledger}/>}
   </div>);
+}
+
+/* Ties today's signed reflection back to the cumulative machine — streaks kept
+   and streaks broken today, so the daily view always references the pattern. */
+function TodayPatternStrip({ledger}){
+  const p=useMemo(()=>behaviorPatternsOf(ledger),[ledger]);
+  if(p.total<2)return null;
+  const today=reflectionForDay(ledger,todayKey());
+  if(!today)return null;
+  const held=p.behaviors.filter(b=>today.toggles&&today.toggles[b.k]&&b.curStreak>=2);
+  const broke=p.behaviors.filter(b=>!(today.toggles&&today.toggles[b.k]));
+  return(<Panel accent={p.identity.c}>
+    <Eyebrow color={p.identity.c}>TODAY AGAINST THE RECORD — {p.total} DAYS DEEP</Eyebrow>
+    <div style={{fontFamily:sans,fontSize:12.5,color:C.textDim,lineHeight:1.5,margin:"11px 0"}}>
+      You are trading as <b style={{color:p.identity.c}}>{p.identity.l.toLowerCase()}</b> across all signed days ({p.proPct}% professional).</div>
+    {held.length>0&&(<div style={{marginBottom:broke.length?10:0}}>
+      <div style={{fontFamily:mono,fontSize:8.5,color:C.win,letterSpacing:"0.16em",marginBottom:6}}>◆ STREAKS EXTENDED TODAY</div>
+      {held.map(b=>(<div key={b.k} style={{fontFamily:sans,fontSize:11.5,color:C.textDim,lineHeight:1.5,display:"flex",gap:8}}>
+        <span style={{color:C.win,fontFamily:mono}}>{b.curStreak}d</span>{b.l}</div>))}
+    </div>)}
+    {broke.length>0&&(<div>
+      <div style={{fontFamily:mono,fontSize:8.5,color:C.loss,letterSpacing:"0.16em",marginBottom:6}}>◆ SLIPPED TODAY — THE MACHINE IS WATCHING</div>
+      {broke.map(b=>(<div key={b.k} style={{fontFamily:sans,fontSize:11.5,color:C.textDim,lineHeight:1.5,display:"flex",gap:8}}>
+        <span style={{color:C.loss,fontFamily:mono}}>{b.rate}%</span>{b.l}</div>))}
+    </div>)}
+  </Panel>);
 }
 function PeriodView({ledger,settings,kind,onSignPeriod}){
   const [off,setOff]=useState(0);
@@ -1728,14 +1805,77 @@ function PeriodView({ledger,settings,kind,onSignPeriod}){
     </Panel>
   </div>);
 }
+/* ════ PATTERNS — the machine identifier, cumulative behavioral mirror ════ */
+function PatternsView({ledger}){
+  const p=useMemo(()=>behaviorPatternsOf(ledger),[ledger]);
+  const confC={OBSERVED:C.win,EMERGING:C.bolt,WATCHING:C.dim};
+  const trendGlyph={up:"▲",down:"▼",flat:"—"};
+  const trendColor={up:C.win,down:C.loss,flat:C.dim};
+  if(p.total===0)return(<Panel style={{textAlign:"center",padding:"40px 20px"}}>
+    <div style={{fontFamily:mono,fontSize:11,color:C.dim,letterSpacing:"0.1em",lineHeight:1.7}}>
+      NO SIGNED REFLECTIONS YET.<br/>SIGN TODAY'S REFLECTION — THE MACHINE STARTS LEARNING YOU.</div></Panel>);
+  return(<div>
+    {/* Identity read */}
+    <Panel accent={p.identity.c}>
+      <Eyebrow color={p.identity.c}><Bolt size={12}/>WHO IS SHOWING UP — {p.total} DAY{p.total===1?"":"S"} ON RECORD</Eyebrow>
+      <div style={{fontFamily:disp,fontSize:22,fontWeight:700,letterSpacing:"0.04em",color:p.identity.c,margin:"12px 0 4px"}}>{p.identity.l}</div>
+      <div style={{display:"flex",alignItems:"center",gap:10,margin:"10px 0"}}>
+        <div style={{flex:1,height:8,background:C.faint,borderRadius:99,overflow:"hidden",border:`1px solid ${C.border}`}}>
+          <div style={{width:`${p.proPct}%`,height:"100%",background:p.identity.c,borderRadius:99,transition:"width .4s"}}/></div>
+        <span style={{fontFamily:mono,fontSize:12,fontWeight:700,color:p.identity.c,minWidth:38,textAlign:"right"}}>{p.proPct}%</span>
+      </div>
+      <div style={{fontFamily:sans,fontSize:12,color:C.textDim,lineHeight:1.5}}>{p.identity.note}</div>
+    </Panel>
+
+    {/* The #1 leak, named */}
+    {p.topLeak&&p.topLeak.rate<100&&(
+      <Panel accent={C.loss}>
+        <Eyebrow color={C.loss}>YOUR #1 LEAK — NAME IT TO KILL IT</Eyebrow>
+        <div style={{fontFamily:sans,fontSize:14,color:C.text,lineHeight:1.5,margin:"11px 0 8px",fontWeight:600}}>{p.topLeak.l}</div>
+        <div style={{fontFamily:mono,fontSize:11,color:C.loss,letterSpacing:"0.04em"}}>
+          Failed {p.topLeak.failCount} of {p.topLeak.total} days · holds only {p.topLeak.rate}% of the time
+          {p.topLeak.lastFail?` · last slipped ${p.topLeak.lastFail===todayKey()?"today":fmtD(p.topLeak.lastFail)}`:""}</div>
+      </Panel>)}
+
+    {/* Per-behavior tracker — daily + cumulative */}
+    <Panel>
+      <Eyebrow>THE SEVEN BEHAVIORS — ADHERENCE · STREAK · TRAJECTORY</Eyebrow>
+      <div style={{fontFamily:sans,fontSize:11,color:C.muted,margin:"8px 0 14px",lineHeight:1.5}}>
+        Ranked worst-held first. Rate is lifetime; trajectory compares your last five days to that baseline.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:9}}>
+        {p.ranked.map(b=>(<div key={b.k} style={{background:C.faint,border:`1px solid ${C.border}`,
+          borderLeft:`3px solid ${b.rate>=80?C.win:b.rate>=50?C.bolt:C.loss}`,borderRadius:9,padding:"11px 12px"}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:7}}>
+            <span style={{fontFamily:mono,fontSize:8,letterSpacing:"0.18em",color:b.catColor}}>{b.cat}</span>
+            <span style={{marginLeft:"auto",fontFamily:mono,fontSize:8,letterSpacing:"0.14em",color:confC[b.conf]}}>◆ {b.conf}</span>
+          </div>
+          <div style={{fontFamily:sans,fontSize:12.5,color:C.textDim,lineHeight:1.4,marginBottom:9}}>{b.l}</div>
+          <div style={{display:"flex",alignItems:"center",gap:9,flexWrap:"wrap"}}>
+            <div style={{flex:1,minWidth:90,height:7,background:C.bg2,borderRadius:99,overflow:"hidden",border:`1px solid ${C.border}`}}>
+              <div style={{width:`${b.rate}%`,height:"100%",background:b.rate>=80?C.win:b.rate>=50?C.bolt:C.loss,borderRadius:99}}/></div>
+            <span style={{fontFamily:mono,fontSize:12,fontWeight:700,color:b.rate>=80?C.win:b.rate>=50?C.bolt:C.loss,minWidth:34,textAlign:"right"}}>{b.rate}%</span>
+            <span style={{fontFamily:mono,fontSize:9,color:trendColor[b.trend]}} title="last 5 vs lifetime">{trendGlyph[b.trend]} {b.recentRate}%</span>
+          </div>
+          <div style={{display:"flex",gap:14,marginTop:8,fontFamily:mono,fontSize:9,color:C.muted}}>
+            <span>NOW <b style={{color:b.curStreak>0?C.win:C.dim}}>{b.curStreak}d</b></span>
+            <span>BEST <b style={{color:C.textDim}}>{b.bestStreak}d</b></span>
+            <span>HELD <b style={{color:C.textDim}}>{b.yes}/{b.total}</b></span>
+          </div>
+        </div>))}
+      </div>
+    </Panel>
+  </div>);
+}
+
 function ReviewMode({ledger,settings,ds,onSignReflection,onSignPeriod}){
   const [sub,setSub]=useState("today");
-  const SUBS=[{id:"today",l:"TODAY"},{id:"week",l:"WEEK"},{id:"month",l:"MONTH"},{id:"stats",l:"STATS"},{id:"ledger",l:"LEDGER"}];
+  const SUBS=[{id:"today",l:"TODAY"},{id:"patterns",l:"PATTERNS"},{id:"week",l:"WEEK"},{id:"month",l:"MONTH"},{id:"stats",l:"STATS"},{id:"ledger",l:"LEDGER"}];
   return(<div style={{animation:"rise .35s ease both"}}>
     <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",scrollbarWidth:"none"}}>
       {SUBS.map(s=>(<Pill key={s.id} sm color={C.bolt} active={sub===s.id} onClick={()=>setSub(s.id)}>{s.l}</Pill>))}
     </div>
     {sub==="today"&&<TodayJournal ledger={ledger} settings={settings} ds={ds} onSignReflection={onSignReflection}/>}
+    {sub==="patterns"&&<PatternsView ledger={ledger}/>}
     {sub==="week"&&<PeriodView ledger={ledger} settings={settings} kind="week" onSignPeriod={onSignPeriod}/>}
     {sub==="month"&&<PeriodView ledger={ledger} settings={settings} kind="month" onSignPeriod={onSignPeriod}/>}
     {sub==="stats"&&<StatsView ledger={ledger} settings={settings}/>}
